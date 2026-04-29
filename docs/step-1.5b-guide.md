@@ -1,12 +1,29 @@
-# Step 1.5b — Linux ROS 1 Agent 验证指南
+# Step 1.5b — ROS 1 Agent 验证指南
 
-> 两台 Ubuntu 电脑，一台做地面站，一台做机器人端，通过 MQTT 通信。
+> 两种部署方案：
+> - **方案 A**：Windows（地面站）+ Ubuntu（机器人端）← 推荐，你已有的环境
+> - **方案 B**：两台 Ubuntu 电脑
 >
 > ⚠️ 标注了 **🔴 高风险**、**🟡 中风险**、**🟢 注意** 三个等级的坑点，请在对应步骤特别留意。
 
 ---
 
 ## 网络拓扑
+
+### 方案 A：Windows 地面站 + Ubuntu 机器人端（推荐）
+
+```
+┌──────────────────────────┐        MQTT (TCP 1883)        ┌─────────────────────┐
+│   地面站 (Windows)        │◄────────────────────────────►│   机器人端 (Ubuntu)   │
+│                          │                                │                     │
+│  Mosquitto Broker        │        MQTT (TCP 1883)         │  ROS 1 (roscore)    │
+│  Station Backend         │◄────────────────────────────►│  ROS1Agent           │
+│  FastAPI :8000           │                                │  HTTP Stream :8080   │
+└──────────────────────────┘                                └─────────────────────┘
+      IP: 192.168.x.W                                           IP: 192.168.x.L
+```
+
+### 方案 B：两台 Ubuntu
 
 ```
 ┌─────────────────────┐          MQTT (TCP 1883)         ┌─────────────────────┐
@@ -23,15 +40,16 @@
 
 ---
 
-## 一、前置准备（两台机器都要做）
+## 一、前置准备
 
 ### 1.1 系统要求
 
-| 项目 | 要求 |
-|------|------|
-| OS | Ubuntu 20.04 (ROS Noetic) 或 Ubuntu 18.04 (ROS Melodic) |
-| Python | 3.8+（推荐 3.10+） |
-| ROS | ROS 1 Noetic 或 Melodic，已安装并可运行 |
+| 项目 | Windows 地面站 | Ubuntu 地面站 | Ubuntu 机器人端 |
+|------|---------------|--------------|----------------|
+| OS | Windows 10/11 | Ubuntu 20.04+ | Ubuntu 20.04 (Noetic) / 18.04 (Melodic) |
+| Python | 3.8+ | 3.8+ | 3.8+（Noetic 绑定 3.8） |
+| ROS | 不需要 | 不需要 | ROS 1 Noetic/Melodic |
+| Mosquitto | 已安装 2.1.2 ✅ | 需安装 | 不需要 |
 
 > 🔴 **高风险：Python 版本兼容问题**
 >
@@ -45,37 +63,56 @@
 
 ### 1.2 安装 Python 依赖
 
+**Windows 地面站：**
+
+```powershell
+# 你已经有 .venv，直接激活
+cd d:\WorkBuddy_WorkSpace\ROS_Project
+.venv\Scripts\activate
+
+# 如果需要重装（换了电脑或 venv 损坏）：
+# python -m venv .venv
+# .venv\Scripts\activate
+# pip install -e ".[station]"
+
+# 确认依赖完整
+pip install -e ".[station]"
+```
+
+**Ubuntu 地面站：**
+
 ```bash
-# 确保 pip 可用
 sudo apt update
-sudo apt install -y python3-pip python3-venv
+sudo apt install -y python3-pip python3-venv git
 
-# 克隆/拷贝项目到两台机器
-# 方式 1: git clone <repo_url>
-# 方式 2: U盘/SCP 拷贝整个 ROS_Project 目录
+git clone https://github.com/xujunshao1999/ros-ground-station.git
+cd ros-ground-station
 
-# 🔴 高风险：不要拷贝 .venv 目录！
-# .venv 里硬编码了原机器的绝对路径（Python 解释器路径、pip 脚本 shebang），
-# 拷到别的机器上会报 "bad interpreter" 或引用不存在的路径。
-# 如果用 U 盘全量拷贝了，先删除再重建：
-#   rm -rf .venv/
-# 如果想避免拷贝 .venv，可以在拷贝前先删掉，或者只拷贝必要文件。
+# 🟢 如果用 U 盘拷贝，不要拷贝 .venv 目录！
+# .venv 里硬编码了原机器的绝对路径，拷到别的机器上会报 "bad interpreter"。
+# 如果已经全量拷贝了，先删除再重建：rm -rf .venv/
 
-cd /path/to/ROS_Project
+# 🟢 已修复：pyproject.toml 已改为 requires-python = ">=3.8"，兼容 Noetic
+# 如果 clone 下来还是 >=3.10，用 --ignore-requires-python 跳过
 
-# 🔴 如果是 Noetic (Python 3.8)，先修改 pyproject.toml：
-#    把 requires-python = ">=3.10" 改为 requires-python = ">=3.8"
-#    或者用 --ignore-requires-python 跳过
-
-# 创建虚拟环境
 python3 -m venv .venv
 source .venv/bin/activate
-
-# 安装项目依赖
 pip install -e .
-
-# 安装地面站额外依赖（仅地面站机器需要）
 pip install -e ".[station]"
+```
+
+**Ubuntu 机器人端：**
+
+```bash
+sudo apt update
+sudo apt install -y python3-pip python3-venv git
+
+git clone https://github.com/xujunshao1999/ros-ground-station.git
+cd ros-ground-station
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
 ### 1.3 验证 ROS 环境（机器人端）
@@ -97,22 +134,65 @@ roscore &
 
 ```bash
 # 在两台机器上互相 ping
-# 地面站机器上：
-ping 192.168.x.B   # 机器人端 IP
 
-# 机器人端上：
-ping 192.168.x.A   # 地面站 IP
+# Windows 地面站上：
+ping 192.168.x.L    # Ubuntu 机器人端 IP
+
+# Ubuntu 机器人端上：
+ping 192.168.x.W    # Windows 地面站 IP
 ```
 
 如果 ping 不通，检查：
-- 防火墙：`sudo ufw status`，必要时 `sudo ufw allow 1883/tcp` 和 `sudo ufw allow 8000/tcp`
-- 网络是否同网段
+
+**Windows 防火墙（🔴 高风险，最常见问题）：**
+
+> 🔴 **高风险：Windows 防火墙默认阻止入站连接！**
+>
+> Mosquitto（1883）和 FastAPI（8000）的入站连接会被 Windows 防火墙拦截，
+> 机器人端连不上 Broker 和 API。
+>
+> **必须放行这两个端口：**
+
+```powershell
+# PowerShell（管理员）放行 MQTT 和 API 端口
+New-NetFirewallRule -DisplayName "ROS Ground Station - MQTT" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow
+New-NetFirewallRule -DisplayName "ROS Ground Station - API" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+
+# 验证规则是否生效
+Get-NetFirewallRule -DisplayName "ROS Ground Station*"
+```
+
+> 🟢 **也可以用 GUI 操作**：控制面板 → Windows Defender 防火墙 → 高级设置 → 入站规则 → 新建规则
+
+**Ubuntu 防火墙：**
+
+```bash
+sudo ufw status
+sudo ufw allow 1883/tcp    # MQTT
+sudo ufw allow 8000/tcp    # API（仅地面站需要）
+```
 
 ---
 
-## 二、地面站端操作（Ubuntu A）
+## 二、地面站端操作
 
-### 2.1 安装 Mosquitto Broker
+### 2.1 启动 Mosquitto Broker
+
+**Windows：**
+
+```powershell
+cd d:\WorkBuddy_WorkSpace\ROS_Project
+
+# 方式 1：用项目脚本
+.\broker\start.bat
+
+# 方式 2：手动启动
+mosquitto -c broker\mosquitto.conf -v
+```
+
+> 🟢 Mosquitto 2.1.2 已安装，直接启动即可。
+
+**Ubuntu：**
 
 ```bash
 sudo apt install -y mosquitto mosquitto-clients
@@ -131,23 +211,26 @@ sudo systemctl disable mosquitto
 > 必须确保配置文件里有 `listener 1883`。
 
 当前项目 `broker/mosquitto.conf` 已经写了 `listener 1883`，没问题。
-但需要确认 Mosquitto 用的是我们的配置而不是默认配置：
+确认 Mosquitto 用的是我们的配置而不是默认配置：
 
-```bash
-cd /path/to/ROS_Project
-
+**Windows：**
+```powershell
 # 检查配置文件
-grep "listener" broker/mosquitto.conf
+Select-String "listener" broker\mosquitto.conf
 # 应该输出: listener 1883
-
-# 如果没有这一行，手动添加：
-echo "listener 1883" >> broker/mosquitto.conf
 ```
 
-### 2.3 启动 Mosquitto Broker
+**Ubuntu：**
+```bash
+cd ~/ros-ground-station
+grep "listener" broker/mosquitto.conf
+# 应该输出: listener 1883
+```
+
+### 2.3 启动 Mosquitto Broker（Ubuntu）
 
 ```bash
-cd /path/to/ROS_Project
+cd ~/ros-ground-station
 
 # 🔴 确保 start.sh 有执行权限
 chmod +x broker/start.sh
@@ -166,6 +249,22 @@ mosquitto -c broker/mosquitto.conf -v
 > 解决：`sudo systemctl stop mosquitto` 或 `sudo kill <pid>`
 
 **验证 Broker 运行：**
+
+**Windows：**
+```powershell
+# 另开终端，用 mosquitto_sub/pub 测试
+mosquitto_sub -h localhost -t "test/topic" &
+mosquitto_pub -h localhost -t "test/topic" -m "hello"
+# 应该看到 "hello" 输出
+
+# 🔴 关键：从机器人端测试远程连接
+# 在 Ubuntu 上执行：
+# mosquitto_pub -h 192.168.x.W -t "test/topic" -m "remote_hello"
+# Windows 地面站的 mosquitto_sub 应该看到 "remote_hello"
+# 如果看不到 → Windows 防火墙没放行 1883
+```
+
+**Ubuntu：**
 ```bash
 # 另开终端，测试 Broker 是否正常
 mosquitto_sub -h localhost -t "test/topic" &
@@ -180,7 +279,7 @@ mosquitto_pub -h 192.168.x.A -t "test/topic" -m "remote_hello"
 
 ### 2.4 修改地面站配置
 
-编辑 `station/backend/config.yaml`：
+编辑 `station/backend/config.yaml`（Windows 和 Ubuntu 配置内容相同）：
 
 ```yaml
 broker_host: "localhost"   # 🟡 注意：这里是 Station 连 Broker 的地址，不是监听地址！
@@ -201,8 +300,17 @@ heartbeat_timeout: 30.0
 
 ### 2.5 启动地面站后端
 
+**Windows：**
+```powershell
+cd d:\WorkBuddy_WorkSpace\ROS_Project
+.venv\Scripts\activate
+
+python -m station.backend.main --broker-host localhost --broker-port 1883
+```
+
+**Ubuntu：**
 ```bash
-cd /path/to/ROS_Project
+cd ~/ros-ground-station
 source .venv/bin/activate
 
 python -m station.backend.main --broker-host localhost --broker-port 1883
@@ -224,15 +332,29 @@ python -m station.backend.main --broker-host localhost --broker-port 1883
 > 3. 用 `mosquitto_sub -h localhost -t test` 验证 Broker 是否响应
 
 **验证 API 可访问：**
-```bash
-# 本机测试
+
+**Windows 地面站本机测试：**
+```powershell
+# PowerShell
+Invoke-RestMethod http://localhost:8000/api/robots
+# 或用 curl（Windows 10+ 自带）
 curl http://localhost:8000/api/robots
 # 应返回 {"robots":[]}
+```
 
-# 从机器人端测试（替换 IP）
-curl http://192.168.x.A:8000/api/robots
+**Ubuntu 地面站本机测试：**
+```bash
+curl http://localhost:8000/api/robots
+# 应返回 {"robots":[]}
+```
+
+**从机器人端测试（替换 IP）：**
+```bash
+curl http://192.168.x.W:8000/api/robots   # Windows 地面站 IP
+# curl http://192.168.x.A:8000/api/robots  # Ubuntu 地面站 IP
 # 🟡 如果本机能访问但机器人端不能 → 防火墙问题
-# sudo ufw allow 8000/tcp
+# Windows: 参考 1.4 放行 8000 端口
+# Ubuntu: sudo ufw allow 8000/tcp
 ```
 
 ---
@@ -279,7 +401,8 @@ rostopic list
 
 ```yaml
 robot_id: "robot_001"
-broker_host: "192.168.x.A"   # 🔴 改为地面站 IP！不能是 localhost
+broker_host: "192.168.x.W"   # 🔴 改为地面站 IP！不能是 localhost
+                                  # Windows 地面站用 192.168.x.W，Ubuntu 地面站用 192.168.x.A
 broker_port: 1883
 status_interval: 2.0
 default_freq_limit: 10.0
@@ -307,7 +430,7 @@ reconnect_delay: 5.0
 > **必须在启动前注入 ROS 的 Python 路径。**
 
 ```bash
-cd /path/to/ROS_Project
+cd ~/ros-ground-station
 
 # 🔴 关键：按此顺序 source！
 source /opt/ros/noetic/setup.bash    # 1. 先 source ROS
@@ -323,14 +446,14 @@ python --version   # 应该和系统的 python3 一致
 # 启动 Agent
 python -m agent.main \
     --agent-type ros1 \
-    --broker-host 192.168.x.A \
+    --broker-host 192.168.x.W \   # 🔴 改为地面站 IP
     --robot-id robot_001
 ```
 
 应看到：
 ```
 [INFO] Robot ID: robot_001
-[INFO] Broker: 192.168.x.A:1883
+[INFO] Broker: <地面站IP>:1883
 [INFO] Agent type: ros1
 [INFO] [ROS1Agent] ROS node initialized: ground_station_agent_robot_001
 [INFO] [Agent] Connected to MQTT broker
@@ -348,7 +471,7 @@ python -m agent.main \
 > 或者放弃 venv，直接在系统 Python 环境装依赖：
 > ```bash
 > pip3 install --user paho-mqtt pyyaml numpy opencv-python
-> python3 -m agent.main --agent-type ros1 --broker-host 192.168.x.A
+> python3 -m agent.main --agent-type ros1 --broker-host <地面站IP>
 > ```
 
 > 🟡 **中风险：rospy.init_node 必须在主线程**
@@ -444,9 +567,9 @@ curl -X POST http://localhost:8000/api/robots/robot_001/command \
 > 正常情况下 curl 应返回 `{"exec_id": "...", "status": "sent"}`，
 > 然后机器人端应收到指令并回复 ack。
 > 如果 `status: sent` 但机器人端没反应：
-> 1. 用 `mosquitto_sub -h 192.168.x.A -t "robot/robot_001/cmd" -v` 确认指令是否到达
+> 1. 用 `mosquitto_sub -h <地面站IP> -t "robot/robot_001/cmd" -v` 确认指令是否到达
 > 2. 检查 Agent 是否收到 cmd → 看 Agent 日志是否有 "Received command"
-> 3. 检查 ack 是否回不来 → `mosquitto_sub -h 192.168.x.A -t "robot/robot_001/cmd/ack" -v`
+> 3. 检查 ack 是否回不来 → `mosquitto_sub -h <地面站IP> -t "robot/robot_001/cmd/ack" -v`
 
 > 🟢 **注意：`return_home` 当前是占位实现**
 >
@@ -483,19 +606,36 @@ curl -X POST http://localhost:8000/api/robots/robot_001/topics/subscribe \
 
 在任意机器上用 `mosquitto_sub` 监控所有消息：
 ```bash
-mosquitto_sub -h 192.168.x.A -t "robot/#" -v
-mosquitto_sub -h 192.168.x.A -t "station/#" -v
+# 从地面站本机监控（Windows / Ubuntu 通用）
+mosquitto_sub -h localhost -t "robot/#" -v
+mosquitto_sub -h localhost -t "station/#" -v
+
+# 从机器人端监控
+mosquitto_sub -h <地面站IP> -t "robot/#" -v
+mosquitto_sub -h <地面站IP> -t "station/#" -v
 ```
 
 > 🟢 **注意：如果从机器人端监控，Broker IP 用地面站的**
 >
-> `mosquitto_sub -h 192.168.x.A`，不是 localhost。
+> `mosquitto_sub -h <地面站IP>`，不是 localhost。
 
 ---
 
 ## 五、依赖清单
 
-### 地面站端（Ubuntu A）
+### 地面站端（Windows）
+
+| 依赖 | 安装方式 | 说明 |
+|------|---------|------|
+| Python 3.8+ | python.org 下载 | |
+| Mosquitto 2.1.2 | 已安装 ✅ | MQTT Broker |
+| paho-mqtt ≥ 2.0 | `pip install -e .` | MQTT 客户端 |
+| FastAPI ≥ 0.104 | `pip install -e ".[station]"` | Web 框架 |
+| uvicorn ≥ 0.24 | `pip install -e ".[station]"` | ASGI 服务器 |
+| pyyaml ≥ 6.0 | `pip install -e .` | 配置文件 |
+| websockets ≥ 12.0 | `pip install -e ".[station]"` | WebSocket |
+
+### 地面站端（Ubuntu）
 
 | 依赖 | 安装方式 | 说明 |
 |------|---------|------|
@@ -522,20 +662,35 @@ mosquitto_sub -h 192.168.x.A -t "station/#" -v
 
 ### 一键安装命令
 
-**地面站端：**
+**Windows 地面站：**
+```powershell
+# Mosquitto 已安装，Python 已安装
+cd d:\WorkBuddy_WorkSpace\ROS_Project
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[station]"
+
+# 🔴 放行防火墙（管理员 PowerShell）
+New-NetFirewallRule -DisplayName "ROS Ground Station - MQTT" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow
+New-NetFirewallRule -DisplayName "ROS Ground Station - API" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+```
+
+**Ubuntu 地面站：**
 ```bash
-sudo apt install -y python3-pip python3-venv mosquitto mosquitto-clients
-cd /path/to/ROS_Project
+sudo apt install -y python3-pip python3-venv git mosquitto mosquitto-clients
+git clone https://github.com/xujunshao1999/ros-ground-station.git
+cd ros-ground-station
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[station]"
 ```
 
 **机器人端：**
 ```bash
-sudo apt install -y python3-pip python3-venv
+sudo apt install -y python3-pip python3-venv git
 # 确保 ROS 1 已安装
 source /opt/ros/noetic/setup.bash
-cd /path/to/ROS_Project
+git clone https://github.com/xujunshao1999/ros-ground-station.git
+cd ros-ground-station
 /usr/bin/python3 -m venv .venv && source .venv/bin/activate   # 🔴 用系统 Python 创建
 pip install -e .
 ```
@@ -547,14 +702,15 @@ pip install -e .
 | 步骤 | 问题 | 症状 | 解决 |
 |------|------|------|------|
 | 1.2 | 拷贝了旧的 .venv | `bad interpreter` 或 `No such file or directory` | 删掉 `.venv/` 后重建：`python3 -m venv .venv && pip install -e .` |
-| 1.2 | Python 版本不兼容 | `pip install -e .` 报 Requires-Python ≥3.10 | 改 `pyproject.toml` 为 `>=3.8`，或加 `--ignore-requires-python` |
+| 1.2 | Python 版本不兼容 | `pip install -e .` 报 Requires-Python ≥3.10 | 已修复为 `>=3.8`，或加 `--ignore-requires-python` |
+| 1.4 | Windows 防火墙拦截 | 机器人端连不上 Broker / API | 管理员 PowerShell 放行 1883 和 8000 端口 |
 | 2.2 | Mosquitto 只监听 localhost | 机器人端连不上 Broker | 确认 `mosquitto.conf` 里有 `listener 1883` |
-| 2.3 | 端口被占用 | `Address already in use` | `sudo systemctl stop mosquitto` 或 `sudo kill <pid>` |
+| 2.3 | 端口被占用 | `Address already in use` | Windows: 任务管理器杀进程；Ubuntu: `sudo systemctl stop mosquitto` |
 | 2.4 | broker_host 写了 0.0.0.0 | Station 连不上 Broker | 改为 `localhost`（Broker 在本机时） |
 | 3.4 | rospy 找不到 | `ImportError: No module named rospy` | `export PYTHONPATH="/opt/ros/noetic/lib/python3/dist-packages:$PYTHONPATH"` |
 | 3.4 | venv Python 版本和 rospy 不一致 | `ImportError: ... undefined symbol` | 用 `/usr/bin/python3 -m venv .venv` 创建 venv |
 | 3.4 | Agent 连不上 Broker | 日志一直刷 "Connection failed" | 检查 `broker_host` 是否为地面站 IP |
-| 4.2 | robots 列表为空 | `{"robots":[]}` | Agent 没连上 / status 没发 / Broker 不通 |
+| 4.2 | robots 列表为空 | `{"robots":[]}` | Agent 没连上 / status 没发 / Broker 不通 / Windows 防火墙 |
 | 4.3 | 指令无 ack | curl 返回 sent 但无响应 | 用 mosquitto_sub 确认消息流转 |
 | 4.4 | 订阅 ROS 话题失败 | Agent 日志报 Unknown message type | 确认 msg_type 格式正确，ROS msg 包已安装 |
 | 4.4 | 大数据 MQTT 崩溃 | 传图像/点云时断连 | Phase 1 先只订阅轻量话题（IMU/odom） |
@@ -566,7 +722,7 @@ pip install -e .
 - [ ] 两台机器能互相 ping 通
 - [ ] 地面站 Mosquitto Broker 启动成功，**远程客户端能连**
 - [ ] 地面站后端 API 可访问 (`/api/robots` 返回 `[]`)
-- [ ] **机器人端能远程访问地面站 API** (`curl http://192.168.x.A:8000/api/robots`)
+- [ ] **机器人端能远程访问地面站 API** (`curl http://<地面站IP>:8000/api/robots`)
 - [ ] 机器人端 roscore 启动成功
 - [ ] 机器人端 ROS1Agent 连上 Broker（日志显示 CONNECTED）
 - [ ] 地面站 discover 后能看到 robot_001 在线

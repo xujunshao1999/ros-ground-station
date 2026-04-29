@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.eggs/
+*.db
+*.sqlite3
+*.log
+
+# Node
+node_modules/
+station/frontend/dist/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Project tools
+.claude/
+.agents/
+.workbuddy/
+.pytest_cache/
+
+# Test & docs
+tests/
+docs/
+
+# Broker data
+broker/data/
+broker/logs/
+
+# Misc
+*.md
+skills-lock.json
+project-plan.md

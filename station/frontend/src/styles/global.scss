@@ -1,0 +1,305 @@
+/**
+ * 全局设计令牌 — 深色仪表盘主题
+ * 风格参考：Sentry / Linear（数据密集型、高密度、专业感）
+ *
+ * 使用规则：
+ *  - 所有颜色必须通过 CSS 变量引用，禁止在组件中硬编码 hex 值
+ *  - Element Plus 主题色通过 :root 覆盖，不需要 el-config-provider
+ *  - ECharts 图表色取自 --chart-* 令牌
+ */
+
+// ============================================================================
+// 1. 颜色系统
+// ============================================================================
+:root {
+  // -- 背景层级（深→浅）
+  --bg-primary: #0f1117;       // 页面底色
+  --bg-secondary: #1a1d27;     // 卡片/面板背景
+  --bg-tertiary: #22253a;      // 悬浮态/选中态
+  --bg-elevated: #262940;      // 弹出层/对话框
+  --bg-hover: #2a2e3d;         // 行悬浮
+
+  // -- 边框层级
+  --border-color: #2a2d3a;         // 默认边框
+  --border-color-light: #363a4a;   // 悬浮边框
+
+  // -- 文字层级
+  --text-primary: #e0e0e0;     // 标题/正文
+  --text-secondary: #909399;   // 标签/说明
+  --text-tertiary: #5f6473;    // 弱化信息
+  --text-disabled: #4a4d5a;    // 禁用态
+
+  // -- 品牌色（Indigo — Sentry/PostHog 风格）
+  --accent: #6366f1;           // 主色
+  --accent-light: #818cf8;     // 悬浮/高亮
+  --accent-dark: #4f46e5;      // 按下
+  --accent-bg: rgba(99, 102, 241, 0.12); // 背景弱色
+
+  // -- 语义色
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.12);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --danger: #ef4444;
+  --danger-bg: rgba(239, 68, 68, 0.12);
+  --info: #909399;
+  --info-bg: rgba(144, 147, 153, 0.12);
+
+  // -- 图表色
+  --chart-battery: #22c55e;
+  --chart-velocity-linear: var(--accent);
+  --chart-velocity-angular: #f59e0b;
+  --chart-grid: #2a2d3a;
+  --chart-axis-label: #909399;
+  --chart-tooltip-bg: #1a1d27;
+  --chart-tooltip-border: #2a2d3a;
+
+  // ============================================================================
+  // 2. 间距系统
+  // ============================================================================
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+
+  // ============================================================================
+  // 3. 圆角系统
+  // ============================================================================
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  // ============================================================================
+  // 4. 阴影系统
+  // ============================================================================
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.45);
+
+  // ============================================================================
+  // 5. 字体系统（Sentry 风格：紧凑层级）
+  // ============================================================================
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 18px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --font-family-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+
+  // ============================================================================
+  // 6. 过渡
+  // ============================================================================
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+
+  // ============================================================================
+  // 7. Element Plus 深色主题覆盖（Indigo 主色调）
+  // ============================================================================
+  --el-color-primary: var(--accent);
+  --el-color-primary-light-3: var(--accent-light);
+  --el-color-primary-dark-2: var(--accent-dark);
+  --el-color-primary-light-5: rgba(99, 102, 241, 0.3);
+  --el-color-primary-light-7: rgba(99, 102, 241, 0.15);
+  --el-color-primary-light-8: rgba(99, 102, 241, 0.08);
+  --el-color-primary-light-9: rgba(99, 102, 241, 0.04);
+
+  // 语义色映射
+  --el-color-success: var(--success);
+  --el-color-warning: var(--warning);
+  --el-color-danger: var(--danger);
+  --el-color-info: var(--info);
+
+  // 背景/文字
+  --el-bg-color: var(--bg-secondary);
+  --el-bg-color-overlay: var(--bg-tertiary);
+  --el-bg-color-page: var(--bg-primary);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-tertiary);
+  --el-text-color-placeholder: var(--text-disabled);
+  --el-border-color: var(--border-color);
+  --el-border-color-light: var(--border-color-light);
+  --el-border-radius-base: var(--radius-md);
+
+  // 字体
+  --el-font-size-base: var(--font-size-md);
+  --el-font-size-small: var(--font-size-sm);
+  --el-font-size-extra-small: var(--font-size-xs);
+  --el-font-size-large: var(--font-size-lg);
+}
+
+// ============================================================================
+// 8. 基础重置
+// ============================================================================
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  font-size: var(--font-size-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+// ============================================================================
+// 9. 滚动条
+// ============================================================================
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a3d4a;
+  border-radius: 3px;
+
+  &:hover {
+    background: #4a4d5a;
+  }
+}
+
+// ============================================================================
+// 10. 通用面板卡片（组件共享类）
+// ============================================================================
+
+// 基准卡片
+.panel-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-normal);
+
+  &:hover {
+    border-color: var(--border-color-light);
+  }
+}
+
+// 面板区块标题
+.panel-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+// 面板头部
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+// 面板内容
+.panel-body {
+  padding: var(--space-lg);
+}
+
+// ============================================================================
+// 11. Element Plus 深色弹窗/下拉覆盖
+// ============================================================================
+html.dark {
+  --el-bg-color: var(--bg-secondary);
+  --el-bg-color-overlay: var(--bg-elevated);
+  --el-fill-color-light: var(--bg-tertiary);
+  --el-fill-color-blank: var(--bg-secondary);
+}
+
+.el-empty__description p {
+  color: var(--text-secondary);
+}
+
+// Dialog 深色适配
+.el-dialog {
+  --el-dialog-bg-color: var(--bg-elevated);
+  --el-dialog-title-font-size: var(--font-size-lg);
+}
+
+// Table 深色适配
+.el-table {
+  --el-table-bg-color: var(--bg-secondary);
+  --el-table-tr-bg-color: var(--bg-secondary);
+  --el-table-header-bg-color: var(--bg-tertiary);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-border-color: var(--border-color);
+  --el-table-text-color: var(--text-primary);
+  --el-table-header-text-color: var(--text-secondary);
+}
+
+// Collapse 深色适配
+.el-collapse-item__header {
+  background: transparent;
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.el-collapse-item__wrap {
+  background: transparent;
+  border-color: var(--border-color);
+}
+
+// Slider 深色适配
+.el-slider__runway {
+  background-color: var(--bg-tertiary);
+}
+
+// Radio Button 深色适配
+.el-radio-button__inner {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+// Progress 深色适配
+.el-progress-bar__outer {
+  background-color: var(--bg-tertiary);
+}
+
+// Descriptions 深色适配
+.el-descriptions {
+  --el-descriptions-table-border: 1px solid var(--border-color);
+}
+
+.el-descriptions__label {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.el-descriptions__content {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}

@@ -365,49 +365,70 @@ Linux 测试环境（两台 Ubuntu 实体机）：
 
 **目标：** 地面站有可视化界面，能显示机器人状态，能发控制指令。
 
-#### Step 2.1：前端项目搭建
-- [ ] 初始化 Vue 3 + TypeScript + Vite 项目
-- [ ] 安装依赖：Element Plus（UI 组件）、ECharts（图表）、Pinia（状态管理）
-- [ ] 配置代理，对接后端 WebSocket
+#### Step 2.1：前端项目搭建 ✅
+- [x] 初始化 Vue 3 + TypeScript + Vite 项目
+- [x] 安装依赖：Element Plus（UI 组件）、ECharts（图表）、Pinia（状态管理）
+- [x] 配置代理，对接后端 WebSocket
 
 **产出：** 前端项目骨架
 
-#### Step 2.2：后端 WebSocket API
-- [ ] 实现 `station/backend/api.py`（FastAPI）：
+#### Step 2.2：后端 WebSocket API ✅
+- [x] 实现 `station/backend/ws_manager.py` — WebSocket 连接管理器（连接池、广播、线程安全推送）
+- [x] 实现 `station/backend/api.py`（FastAPI）：
   - `ws://station/live` — WebSocket 主通道
-  - 推送：机器人上线/离线、状态更新、告警事件
-  - 接收：控制指令、Topic 订阅请求
-- [ ] 实现 `station/backend/main.py` — 启动入口，MQTT + WebSocket 联动
+  - 推送：机器人上线/离线、状态更新、告警事件、指令确认
+  - 接收：控制指令、Topic 订阅请求、发现请求、心跳
+  - 连接初始化时推送当前所有机器人状态快照
+- [x] 实现 `station/backend/main.py` — 启动入口，MQTT + WebSocket 联动
+  - RobotManager 回调 → api.push_* → WsManager.broadcast_sync
+- [x] 前端 WebSocket 客户端：`useWebSocket` composable + `useGlobalWebSocket`
+  - 自动连接/指数退避重连
+  - 心跳保活（ping/pong）
+  - 消息分发到 Pinia store
 
-**产出：** 后端 WebSocket 接口
+**产出：** 后端 WebSocket 接口 + 前端 WebSocket 客户端
 
-#### Step 2.3：前端 — 机器人列表与状态面板
-- [ ] 布局：左侧机器人列表 + 右侧详情区
-- [ ] 机器人列表卡片：ID、在线状态、电量、模式
-- [ ] 机器人详情面板：
-  - 基本状态（位置、速度、电量、运行时间）
-  - 实时数据图表（电量曲线、速度曲线）
-  - 运行模式显示
+#### Step 2.3：前端 — 机器人列表与状态面板 ✅
+- [x] 布局：左侧机器人列表 + 右侧详情区
+- [x] 机器人列表卡片：ID、在线状态、电量、模式
+- [x] 机器人详情面板：
+  - 基本状态（位置、速度、电量、运行时间、ROS版本、IP）
+  - 实时数据图表（电量曲线、线速度+角速度曲线，ECharts 按需加载）
+  - 运行模式显示（Auto/Manual/Stop，颜色区分）
+- [x] Store 历史数据记录（每个机器人最多 120 个数据点，WebSocket status_update 自动追加）
 
 **产出：** 能看到机器人状态的界面
 
-#### Step 2.4：前端 — 控制面板
-- [ ] 速度控制：线速度/角速度滑块 + 发送按钮
-- [ ] 模式切换：自动/手动/停止
-- [ ] 自定义指令发送（高级模式，输入 topic + JSON）
-- [ ] 指令执行状态追踪（发送 → 等待 ack → 成功/失败）
+#### Step 2.4：前端 — 控制面板 ✅
+- [x] 速度控制：线速度/角速度滑块 + 发送按钮
+- [x] 模式切换：自动/手动/停止 + 紧急停止 + 返航
+- [x] 自定义指令发送（高级模式，折叠面板输入 topic + JSON）
+- [x] 指令执行状态追踪（发送 → 等待 ack → 成功/失败/超时）
+- [x] Store 指令追踪：pendingCommands Map + sendCommand action + handleCmdAck + 超时检测
+- [x] WebSocket send 注入：useGlobalWebSocket 将 send 注册到 store
 
 **产出：** 能操控机器人的界面
 
-#### Step 2.5：前端 — Topic 订阅管理
-- [ ] Topic 列表展示（从 Agent 获取）
-- [ ] 订阅/取消订阅按钮
-- [ ] 已订阅 Topic 数据实时展示（表格/图表）
-- [ ] 订阅频率控制
+#### Step 2.5：前端 — Topic 订阅管理 ✅
+- [x] Topic 列表展示（从 Agent 获取）
+- [x] 订阅/取消订阅按钮
+- [x] 已订阅 Topic 数据实时展示（表格/图表）
+- [x] 订阅频率控制
+- [x] 后端链路补全：topic_response + sensor_data → RobotManager → WebSocket 推送
 
 **产出：** 能管理 Topic 订阅的界面
 
-**Phase 2 完成标志：** 地面站 GUI 能显示机器人状态、发送控制指令、管理 Topic 订阅。
+#### Step 2.6：前端 — 设计令牌统一 & 视觉打磨 ✅
+- [x] 补全 `global.scss` 设计令牌体系（状态色/间距/圆角/阴影/字体层级）
+- [x] 主色调调整：Element Plus 默认蓝 → Sentry/PostHog 风格 indigo/purple
+- [x] 消灭组件内硬编码颜色，统一走 CSS 变量（DashboardView / AppLayout / RobotStatusPanel / RobotCharts / ControlPanel / CommandTracker / TopicManager）
+- [x] 卡片层次感：微阴影 + hover 边框高亮 + 交互反馈
+- [x] 字体层级系统化：标题/正文/标签/数字 的 size + weight 规则
+- [x] 数据密度调优：行间距/内边距收紧，匹配 Sentry 高密度风格
+
+**产出：** 统一的设计令牌 + 视觉一致的深色仪表盘界面
+
+**Phase 2 完成标志：** 地面站 GUI 能显示机器人状态、发送控制指令、管理 Topic 订阅、视觉风格统一。✅
 
 ---
 
@@ -415,33 +436,42 @@ Linux 测试环境（两台 Ubuntu 实体机）：
 
 **目标：** 支持多台机器人同时连接，加入视频流、数据录制等实用功能。
 
-#### Step 3.1：多机器人管理
-- [ ] 前端支持多机器人同时展示（Grid 布局 / Tab 切换）
-- [ ] 后端机器人管理器支持并发（异步处理多 Agent 消息）
-- [ ] 批量指令下发（全停、全返航等）
-- [ ] 机器人分组/标签
+#### Step 3.1：多机器人管理 ✅
+- [x] 前端支持多机器人同时展示（Grid 布局 / Tab 切换）✅
+- [x] 后端机器人管理器支持并发（异步处理多 Agent 消息）✅
+- [x] 批量指令下发（全停、全返航等）✅
+- [x] 机器人分组/标签 ✅
 
-#### Step 3.2：视频流与点云可视化
-- [ ] Agent 端：
-  - 图像：订阅 ROS 图像 topic → JPEG 压缩 → MJPEG HTTP 流
-  - 点云：订阅 PointCloud2 topic → 体素降采样 → HTTP 流
-  - 频率/质量/分辨率可由地面站动态调节
-- [ ] 后端：透传或转码
-- [ ] 前端：
-  - 图像：`<img>` 标签拉 MJPEG 流 / Canvas 渲染
-  - 点云：Three.js 或 Potree 渲染
-  - 多路视频/点云同屏显示
+#### Step 3.2：视频流与点云可视化 ✅
+- [x] Agent 端：点云生成 + 体素降采样 + HTTP 流服务端 ✅
+- [x] 后端 MQTT 订阅 `robot/+/sensor/+/meta` ✅
+- [x] 后端：分离 sensor_meta 处理，流代理端点 ✅
+- [x] 前端：Three.js 点云渲染组件 ✅
+- [x] 前端：基于 MQTT + base64 JPEG 的实时相机显示 ✅
 
-#### Step 3.3：数据录制与回放
-- [ ] 后端：SQLite 存储历史状态数据
-- [ ] 录制控制：开始/停止录制指定机器人的指定 Topic
-- [ ] 历史数据查询与回放（时间轴拖拽）
-- [ ] 数据导出（CSV/JSON）
+#### Step 3.3：数据录制与回放 ✅
+- [x] 后端：SQLite 存储历史状态数据 ✅
+- [x] 录制控制：开始/暂停/停止 ✅
+- [x] 前端录制按钮（红色脉冲圆点）+ 历史面板（ECharts + 时间范围选择 + CSV导出）✅
 
-#### Step 3.4：告警系统
-- [ ] 定义告警规则（电量低、通信超时、异常值等）
-- [ ] 告警通知（界面弹窗 + 声音）
-- [ ] 告警历史记录
+#### Step 3.4：告警系统 ✅
+- [x] Agent 端：MockAgent 模拟事件生成（每 10s 随机 info/warning/error 级别事件）
+- [x] 后端：RobotManager 事件存储（每条机器人保留最近 50 条）
+- [x] 后端 API：`GET /api/robots/{id}/events?level=...` 查询告警
+- [x] WebSocket 推送：事件通过 `event` 类型消息实时推送到前端
+- [x] 前端 Store：替换 `case 'event'` 占位符为实际处理逻辑
+- [x] 前端 AlertPanel 组件：固定右上角浮动通知面板，未读计数红点
+- [x] 前端通知：按级别颜色区分（info=蓝、warning=黄、error=红），支持按级别过滤
+- [x] 告警规则引擎（电量阈值、通信超时自动检测、位置越界等）✅
+- [x] 告警历史记录（SQLite 持久化 + 前端 Load history 加载）✅
+
+#### Step 3.5：机器人间通信（Fleet Data）✅
+- [x] 协议层：新增 `robot/{src}/to/{dst}` topic + `FLEET_DATA` 消息类型 + `FleetData` dataclass ✅
+- [x] Agent：`_on_connect` 新增通配符订阅 `robot/+/to/{self_id}` ✅
+- [x] Agent：`send_to_robot()`, `share_heavy_data()`, `_handle_fleet_message()`, `_on_fleet_message()` 抽象 ✅
+- [x] MockAgent：实现 `_on_fleet_message` 日志输出 ✅
+- [x] ROS1Agent：实现 `_on_fleet_message` → ROS `/fleet/incoming` 话题桥接 ✅
+- [x] 轻量数据走 MQTT JSON，重量数据（点云）复用 HTTP 流 + MQTT 信令 ✅
 
 **Phase 3 完成标志：** 多机器人完整管理，有视频、录制、告警。
 

@@ -24,38 +24,10 @@ import sys
 import os
 from pathlib import Path
 
-import yaml
-
 # 确保项目根目录在 path 中
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agent.base_agent import AgentConfig
-
-
-def load_config(config_path: str) -> dict:
-    """加载 YAML 配置文件"""
-    path = Path(config_path)
-    if not path.exists():
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def build_config(args, yaml_config: dict) -> AgentConfig:
-    """构建 Agent 配置
-
-    优先级：命令行参数 > YAML 配置 > 默认值
-    """
-    return AgentConfig(
-        robot_id=args.robot_id or yaml_config.get("robot_id", "robot_001"),
-        broker_host=args.broker_host or yaml_config.get("broker_host", "localhost"),
-        broker_port=args.broker_port or yaml_config.get("broker_port", 1883),
-        status_interval=yaml_config.get("status_interval", 2.0),
-        default_freq_limit=yaml_config.get("default_freq_limit", 10.0),
-        http_stream_port=yaml_config.get("http_stream_port", 8080),
-        auto_reconnect=yaml_config.get("auto_reconnect", True),
-        reconnect_delay=yaml_config.get("reconnect_delay", 5.0),
-    )
 
 
 def main():
@@ -103,9 +75,20 @@ def main():
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
-    # 加载配置
-    yaml_config = load_config(args.config)
-    config = build_config(args, yaml_config)
+    # 加载并校验配置（优先级：命令行 > 环境变量 > YAML > 默认值）
+    config = AgentConfig.from_yaml(args.config)
+    if args.robot_id:
+        config.robot_id = args.robot_id
+    elif os.environ.get("ROBOT_ID"):
+        config.robot_id = os.environ["ROBOT_ID"]
+    if args.broker_host:
+        config.broker_host = args.broker_host
+    elif os.environ.get("BROKER_HOST"):
+        config.broker_host = os.environ["BROKER_HOST"]
+    if args.broker_port:
+        config.broker_port = args.broker_port
+    elif os.environ.get("BROKER_PORT"):
+        config.broker_port = int(os.environ["BROKER_PORT"])
 
     logger = logging.getLogger("agent.main")
     logger.info(f"Robot ID: {config.robot_id}")

@@ -12,6 +12,7 @@
 
 import json
 import logging
+import threading
 import time
 from typing import Callable, Optional
 
@@ -65,9 +66,11 @@ class MQTTHandler:
         broker_host: str = "localhost",
         broker_port: int = 1883,
         client_id: str = "ground_station",
+        reconnect_delay: float = 5.0,
     ):
         self.broker_host = broker_host
         self.broker_port = broker_port
+        self._reconnect_delay = reconnect_delay
 
         self._client: Optional[mqtt.Client] = None
         self._factory = MessageFactory(src="station")
@@ -79,8 +82,10 @@ class MQTTHandler:
         self._on_discover_response: Optional[Callable] = None
         self._on_topic_response: Optional[Callable] = None
         self._on_sensor_data: Optional[Callable] = None
+        self._on_sensor_meta: Optional[Callable] = None
 
         self._running = False
+        self._reconnect_thread: Optional[threading.Thread] = None
 
     def set_callbacks(
         self,
@@ -90,6 +95,7 @@ class MQTTHandler:
         on_discover_response: Optional[Callable] = None,
         on_topic_response: Optional[Callable] = None,
         on_sensor_data: Optional[Callable] = None,
+        on_sensor_meta: Optional[Callable] = None,
     ) -> None:
         """设置消息回调函数
 
@@ -100,6 +106,7 @@ class MQTTHandler:
         - on_discover_response(robot_id: str, message: Message)
         - on_topic_response(robot_id: str, message: Message)
         - on_sensor_data(robot_id: str, sensor_name: str, payload: bytes)
+        - on_sensor_meta(robot_id: str, meta: dict)
         """
         self._on_status = on_status
         self._on_cmd_ack = on_cmd_ack
@@ -107,6 +114,7 @@ class MQTTHandler:
         self._on_discover_response = on_discover_response
         self._on_topic_response = on_topic_response
         self._on_sensor_data = on_sensor_data
+        self._on_sensor_meta = on_sensor_meta
 
     def start(self) -> None:
         """启动 MQTT 客户端"""
@@ -205,6 +213,34 @@ class MQTTHandler:
         logger.info(f"[MQTTHandler] Sent unsubscribe request: {ros_topic}")
 
     # ============================================================
+    # 自动重连
+    # ============================================================
+
+    def _start_reconnect(self) -> None:
+        """启动自动重连线程"""
+        if self._reconnect_thread and self._reconnect_thread.is_alive():
+            return  # 已经在重连中
+        self._reconnect_thread = threading.Thread(
+            target=self._reconnect_loop,
+            daemon=True,
+            name="mqtt_reconnect",
+        )
+        self._reconnect_thread.start()
+
+    def _reconnect_loop(self) -> None:
+        """自动重连循环"""
+        while self._running:
+            logger.info(f"[MQTTHandler] Reconnecting in {self._reconnect_delay}s...")
+            time.sleep(self._reconnect_delay)
+            try:
+                if self._client:
+                    self._client.reconnect()
+                logger.info("[MQTTHandler] Reconnected!")
+                return
+            except Exception as e:
+                logger.error(f"[MQTTHandler] Reconnect failed: {e}")
+
+    # ============================================================
     # MQTT 回调
     # ============================================================
 
@@ -235,7 +271,8 @@ class MQTTHandler:
         """断开连接回调"""
         rc_val = reason_code if isinstance(reason_code, int) else getattr(reason_code, 'value', 0)
         if rc_val != 0:
-            logger.warning(f"[MQTTHandler] Unexpected disconnect (rc={rc_val})")
+            logger.warning(f"[MQTTHandler] Unexpected disconnect (rc={rc_val}), reconnecting...")
+            self._start_reconnect()
 
     def _on_message(self, client, userdata, msg) -> None:
         """消息回调"""
@@ -280,10 +317,23 @@ class MQTTHandler:
 
     def _handle_sensor_message(self, topic: str, payload: bytes) -> None:
         """处理传感器数据消息"""
-        # 解析 robot/{id}/sensor/{name}
+        # 解析 robot/{id}/sensor/{name}[/meta]
         parts = topic.split("/")
         if len(parts) >= 4:
             robot_id = parts[1]
             sensor_name = "/".join(parts[3:])
+
+            # 检测 sensor_meta 消息（topic 以 /meta 结尾）
+            if sensor_name.endswith("/meta") and self._on_sensor_meta:
+                try:
+                    message = Message.from_json(payload.decode("utf-8"))
+                    meta_data = message.data
+                    if isinstance(meta_data, dict):
+                        self._on_sensor_meta(robot_id, meta_data)
+                    return
+                except Exception as e:
+                    logger.error(f"[MQTTHandler] Error parsing sensor meta: {e}")
+                    return
+
             if self._on_sensor_data:
                 self._on_sensor_data(robot_id, sensor_name, payload)

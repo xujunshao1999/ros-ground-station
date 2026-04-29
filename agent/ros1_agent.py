@@ -8,12 +8,11 @@ ROS 1 Agent — 连接 ROS 1 和 MQTT 的桥接代理
 依赖：rospy（ROS 1 Noetic / Melodic）
 """
 
-import io
 import json
 import logging
+import math
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 
 try:
@@ -31,6 +30,7 @@ from protocol.messages import (
     CmdData,
     CmdAction,
     RobotMode,
+    FleetData,
 )
 
 logger = logging.getLogger(__name__)
@@ -149,12 +149,6 @@ class ROS1Agent(BaseAgent):
         self._sensor_data: dict[str, dict] = {}
         self._sensor_lock = threading.Lock()
 
-        # HTTP 流服务端（重量话题）
-        self._stream_server: Optional[HTTPServer] = None
-        self._stream_thread: Optional[threading.Thread] = None
-        self._stream_data: dict[str, bytes] = {}
-        self._stream_lock = threading.Lock()
-
     # ============================================================
     # BaseAgent 抽象方法实现
     # ============================================================
@@ -165,10 +159,20 @@ class ROS1Agent(BaseAgent):
         with self._sensor_lock:
             odom = self._sensor_data.get("/odom")
             if odom and "pose" in odom:
+                pose = odom["pose"]
+                # 从四元数 (qx, qy, qz, qw) 计算 yaw 角
+                qx = pose.get("qx", 0.0)
+                qy = pose.get("qy", 0.0)
+                qz = pose.get("qz", 0.0)
+                qw = pose.get("qw", 1.0)
+                yaw = math.atan2(
+                    2.0 * (qw * qz + qx * qy),
+                    1.0 - 2.0 * (qy * qy + qz * qz)
+                )
                 self._position = Position(
-                    x=odom["pose"].get("x", 0.0),
-                    y=odom["pose"].get("y", 0.0),
-                    theta=odom["pose"].get("qw", 1.0),  # 简化：用 qw 近似朝向
+                    x=pose.get("x", 0.0),
+                    y=pose.get("y", 0.0),
+                    theta=yaw,
                 )
             twist = self._sensor_data.get("/cmd_vel")
             if twist:
@@ -314,6 +318,26 @@ class ROS1Agent(BaseAgent):
         logger.info(f"[ROS1Agent] Unsubscribed from ROS topic: {topic}")
 
     # ============================================================
+    # 机器人间通信
+    # ============================================================
+
+    def _on_fleet_message(self, src_id: str, data: FleetData) -> None:
+        """处理其他机器人发来的 fleet 数据，发布到 ROS 话题"""
+        try:
+            payload = {
+                "src_id": src_id,
+                "data_type": data.data_type,
+                "payload": data.payload,
+                "ttl": data.ttl,
+                "timestamp": time.time(),
+            }
+            pub = rospy.Publisher("/fleet/incoming", String, queue_size=10)
+            pub.publish(json.dumps(payload))
+            logger.info(f"[ROS1Agent] Published fleet data from {src_id} to /fleet/incoming")
+        except Exception as e:
+            logger.error(f"[ROS1Agent] Failed to publish fleet data to ROS: {e}")
+
+    # ============================================================
     # ROS 消息类型映射
     # ============================================================
 
@@ -373,88 +397,5 @@ class ROS1Agent(BaseAgent):
         logger.info("[ROS1Agent] Stopped")
 
     # ============================================================
-    # HTTP 流服务端（重量话题）
-    # ============================================================
-
-    def _start_stream_server(self) -> None:
-        """启动 HTTP 流服务端"""
-        if self._stream_server is not None:
-            return
-
-        agent = self
-
-        class StreamHandler(BaseHTTPRequestHandler):
-            """HTTP 请求处理器：返回最新流数据"""
-
-            def do_GET(self):
-                # 解析路径 /stream/<topic_name>
-                path = self.path.strip("/")
-                parts = path.split("/", 1)
-                if len(parts) < 2 or parts[0] != "stream":
-                    self.send_error(404, "Not found. Use /stream/<topic>")
-                    return
-
-                topic = "/" + parts[1]
-                with agent._stream_lock:
-                    data = agent._stream_data.get(topic)
-
-                if data is None:
-                    self.send_error(404, f"No data for topic: {topic}")
-                    return
-
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def log_message(self, format, *args):
-                logger.debug(f"[StreamServer] {format % args}")
-
-        try:
-            self._stream_server = HTTPServer(
-                ("0.0.0.0", self.config.http_stream_port), StreamHandler
-            )
-            self._stream_thread = threading.Thread(
-                target=self._stream_server.serve_forever,
-                daemon=True,
-                name="http_stream_server",
-            )
-            self._stream_thread.start()
-            logger.info(
-                f"[ROS1Agent] HTTP stream server started on port {self.config.http_stream_port}"
-            )
-        except Exception as e:
-            logger.error(f"[ROS1Agent] Failed to start stream server: {e}")
-
-    def _stop_stream_server(self) -> None:
-        """停止 HTTP 流服务端"""
-        if self._stream_server:
-            self._stream_server.shutdown()
-            self._stream_server = None
-        if self._stream_thread:
-            self._stream_thread.join(timeout=2.0)
-            self._stream_thread = None
-        logger.info("[ROS1Agent] HTTP stream server stopped")
-
-    def _store_stream_data(self, topic: str, data: bytes) -> None:
-        """存储流数据（供 HTTP 流服务端读取）"""
-        with self._stream_lock:
-            self._stream_data[topic] = data
-
-    # ============================================================
     # 工具方法
     # ============================================================
-
-    @staticmethod
-    def _get_local_ip() -> str:
-        """获取本机局域网 IP"""
-        import socket
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            return "127.0.0.1"

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Agent 抽象基类
 
@@ -10,13 +12,12 @@ Agent 的核心职责：
 5. 响应发现请求和话题订阅请求
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import threading
 import time
 from abc import ABC, abstractmethod
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
@@ -32,11 +33,13 @@ from protocol.messages import (
     Velocity,
     CmdData,
     CmdAckData,
+    EventData,
     DiscoverData,
     DiscoverResponseData,
     TopicRequestData,
     TopicResponseData,
     SensorMetaData,
+    FleetData,
     TopicAction,
     RobotMode,
     CmdAction,
@@ -48,6 +51,10 @@ from protocol.topics import (
     robot_cmd,
     robot_cmd_ack,
     robot_event,
+    robot_to_robot,
+    robot_to_robot_meta,
+    all_robot_to_robot,
+    all_robot_to_robot_meta,
     station_discover,
     station_topic_request,
     station_topic_response,
@@ -82,6 +89,63 @@ class AgentConfig:
     http_stream_port: int = 8080  # 重量话题 HTTP 流端口
     auto_reconnect: bool = True  # 自动重连
     reconnect_delay: float = 5.0  # 重连延迟（秒）
+
+    def __post_init__(self):
+        """校验配置字段"""
+        if not self.robot_id:
+            raise ValueError("robot_id 不能为空")
+        if not self.broker_host:
+            raise ValueError("broker_host 不能为空")
+        if not (1 <= self.broker_port <= 65535):
+            raise ValueError(f"broker_port 必须在 1-65535 之间，当前: {self.broker_port}")
+        if self.status_interval <= 0:
+            raise ValueError(f"status_interval 必须大于 0，当前: {self.status_interval}")
+        if self.default_freq_limit < 0:
+            raise ValueError(f"default_freq_limit 必须 >= 0，当前: {self.default_freq_limit}")
+        if not (1 <= self.http_stream_port <= 65535):
+            raise ValueError(f"http_stream_port 必须在 1-65535 之间，当前: {self.http_stream_port}")
+        if self.reconnect_delay <= 0:
+            raise ValueError(f"reconnect_delay 必须大于 0，当前: {self.reconnect_delay}")
+
+    @classmethod
+    def from_yaml(cls, path: str) -> AgentConfig:
+        """从 YAML 文件加载并校验配置"""
+        import logging
+        from pathlib import Path
+
+        import yaml
+
+        logger = logging.getLogger(__name__)
+
+        p = Path(path)
+        if not p.exists():
+            logger.warning(f"配置文件不存在: {path}，使用默认值")
+            return cls()
+
+        with open(p, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+
+        # 检测未知字段（防止拼写错误）
+        known_keys = {
+            "robot_id", "broker_host", "broker_port",
+            "status_interval", "default_freq_limit", "http_stream_port",
+            "auto_reconnect", "reconnect_delay",
+            "username", "password", "ros_master_uri", "ros_namespace",
+        }
+        unknown = set(raw.keys()) - known_keys
+        if unknown:
+            logger.warning(f"配置文件中存在未识别的字段: {unknown}")
+
+        return cls(
+            robot_id=raw.get("robot_id", "robot_001"),
+            broker_host=raw.get("broker_host", "localhost"),
+            broker_port=raw.get("broker_port", 1883),
+            status_interval=raw.get("status_interval", 2.0),
+            default_freq_limit=raw.get("default_freq_limit", 10.0),
+            http_stream_port=raw.get("http_stream_port", 8080),
+            auto_reconnect=raw.get("auto_reconnect", True),
+            reconnect_delay=raw.get("reconnect_delay", 5.0),
+        )
 
 
 class BaseAgent(ABC):
@@ -123,6 +187,12 @@ class BaseAgent(ABC):
 
         # 状态上报线程（基类默认实现）
         self._status_thread: Optional[threading.Thread] = None
+
+        # HTTP 流服务端（重量话题用）
+        self._stream_server: Optional[HTTPServer] = None
+        self._stream_thread: Optional[threading.Thread] = None
+        self._stream_data: dict[str, bytes] = {}
+        self._stream_lock = threading.Lock()
 
     # ============================================================
     # 公共接口
@@ -177,6 +247,23 @@ class BaseAgent(ABC):
 
         self.state = AgentState.STOPPED
         logger.info("[Agent] Stopped.")
+
+    def publish_event(self, event_data: EventData) -> None:
+        """发布事件/告警
+
+        由子类调用，通过 MQTT 发送事件消息到地面站。
+
+        Args:
+            event_data: 事件数据
+        """
+        try:
+            msg = self._factory.event(event_data)
+            from protocol.topics import robot_event
+            self._mqtt_publish(
+                robot_event(self.config.robot_id), msg.to_json().encode("utf-8")
+            )
+        except Exception as e:
+            logger.error(f"[Agent] Failed to publish event: {e}")
 
     def publish_sensor_data(self, ros_topic: str, msg_type: str, data: dict) -> None:
         """发布传感器数据
@@ -235,6 +322,56 @@ class BaseAgent(ABC):
         self._rate_limiter.mark_sent(ros_topic)
 
     # ============================================================
+    # 机器人间通信
+    # ============================================================
+
+    def send_to_robot(self, target_id: str, fleet_data: FleetData) -> None:
+        """向指定机器人发送轻量数据（MQTT JSON）
+
+        Args:
+            target_id: 目标机器人 ID
+            fleet_data: 机器人间数据（位置/导航目标/自定义）
+        """
+        msg = self._factory.fleet_data(fleet_data, dst=target_id)
+        topic = robot_to_robot(self.config.robot_id, target_id)
+        self._mqtt_publish(topic, msg.to_json().encode("utf-8"))
+        logger.info(f"[Agent] Sent fleet data to {target_id}: type={fleet_data.data_type}")
+
+    def share_heavy_data(self, target_id: str, topic: str, data: bytes,
+                         msg_type: str = "sensor_msgs/PointCloud2") -> None:
+        """向指定机器人共享重量数据（点云等）
+
+        复用 HTTP 流服务端存储数据，通过 MQTT 发送带 stream_url 的信令。
+
+        Args:
+            target_id: 目标机器人 ID
+            topic: 数据话题名，如 "/fleet/points"
+            data: 二进制数据（如 float32 点云）
+            msg_type: ROS 消息类型
+        """
+        self._store_stream_data(topic, data)
+
+        stream_url = (
+            f"http://{self._get_local_ip()}:"
+            f"{self.config.http_stream_port}/stream{topic}"
+        )
+        meta = FleetData(
+            data_type="pointcloud",
+            payload={
+                "topic": topic,
+                "msg_type": msg_type,
+                "stream_url": stream_url,
+                "size_bytes": len(data),
+            },
+            ttl=30.0,
+        )
+        # 通过 meta topic 发送信令
+        meta_msg = self._factory.fleet_data(meta, dst=target_id)
+        meta_topic = robot_to_robot_meta(self.config.robot_id, target_id)
+        self._mqtt_publish(meta_topic, meta_msg.to_json().encode("utf-8"))
+        logger.info(f"[Agent] Shared heavy data to {target_id}: topic={topic} ({len(data)} bytes)")
+
+    # ============================================================
     # 抽象方法（子类实现）
     # ============================================================
 
@@ -290,6 +427,16 @@ class BaseAgent(ABC):
         """
         pass
 
+    @abstractmethod
+    def _on_fleet_message(self, src_id: str, data: FleetData) -> None:
+        """收到其他机器人数据的回调
+
+        Args:
+            src_id: 源机器人 ID
+            data: 机器人间数据
+        """
+        ...
+
     # ============================================================
     # MQTT 回调
     # ============================================================
@@ -301,6 +448,19 @@ class BaseAgent(ABC):
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=client_id,
         )
+
+        # 设置 Last Will：异常断开时 Broker 立即通知地面站
+        will_topic = robot_event(self.config.robot_id)
+        will_payload = json.dumps({
+            "type": "event",
+            "src": self.config.robot_id,
+            "data": {
+                "level": "error",
+                "code": "AGENT_DISCONNECTED",
+                "message": f"Agent {self.config.robot_id} disconnected unexpectedly",
+            },
+        })
+        self._mqtt_client.will_set(will_topic, will_payload, qos=1, retain=False)
 
         # 设置回调
         self._mqtt_client.on_connect = self._on_connect
@@ -319,6 +479,10 @@ class BaseAgent(ABC):
             client.subscribe(robot_cmd(self.config.robot_id), qos=1)
             client.subscribe(station_discover(), qos=1)
             client.subscribe(station_topic_request(), qos=1)
+
+            # 订阅其他机器人发来的 fleet 数据
+            client.subscribe(all_robot_to_robot(self.config.robot_id), qos=1)
+            client.subscribe(all_robot_to_robot_meta(self.config.robot_id), qos=1)
 
             # 启动状态上报循环
             self._start_status_loop()
@@ -354,6 +518,8 @@ class BaseAgent(ABC):
             self._handle_command(message)
         elif msg_type == MessageType.TOPIC_REQUEST:
             self._handle_topic_request(message)
+        elif msg_type == MessageType.FLEET_DATA:
+            self._handle_fleet_message(message)
         else:
             logger.warning(f"[Agent] Unknown message type: {msg_type}")
 
@@ -452,6 +618,39 @@ class BaseAgent(ABC):
                 response.to_json().encode("utf-8"),
             )
 
+    def _handle_fleet_message(self, message: Message) -> None:
+        """处理其他机器人发来的数据
+
+        Args:
+            message: fleet_data 类型的消息
+        """
+        src_id = message.src
+        fleet_data = message.data  # dict
+        data_type = fleet_data.get("data_type", "custom")
+
+        logger.info(f"[Agent] Fleet data from {src_id}: type={data_type}")
+
+        # 重量数据 meta 信令
+        if data_type == "pointcloud":
+            payload = fleet_data.get("payload", {})
+            stream_url = payload.get("stream_url", "")
+            if stream_url:
+                logger.info(f"[Agent] Received heavy data meta from {src_id}: "
+                            f"url={stream_url}, size={payload.get('size_bytes', 0)}")
+                self._on_fleet_message(src_id, FleetData(
+                    data_type=data_type,
+                    payload=payload,
+                    ttl=fleet_data.get("ttl", 30.0),
+                ))
+            return
+
+        # 轻量数据：直接回调子类
+        self._on_fleet_message(src_id, FleetData(
+            data_type=data_type,
+            payload=fleet_data.get("payload", {}),
+            ttl=fleet_data.get("ttl", 30.0),
+        ))
+
     # ============================================================
     # 状态上报
     # ============================================================
@@ -548,12 +747,71 @@ class BaseAgent(ABC):
         return robot_sensor(self.config.robot_id, name)
 
     def _store_stream_data(self, topic: str, data: bytes) -> None:
-        """存储流数据（供 HTTP 流服务端读取）
-
-        默认实现：内存字典缓存。子类可重写以实现其他存储方式。
-        """
-        if not hasattr(self, '_stream_data'):
-            self._stream_data = {}
-            self._stream_lock = threading.Lock()
+        """存储流数据（供 HTTP 流服务端读取）"""
         with self._stream_lock:
             self._stream_data[topic] = data
+
+    # ============================================================
+    # HTTP 流服务端（重量话题）
+    # ============================================================
+
+    def _start_stream_server(self) -> None:
+        """启动 HTTP 流服务端"""
+        if self._stream_server is not None:
+            return
+
+        handler = self._create_stream_handler()
+
+        try:
+            self._stream_server = HTTPServer(
+                ("0.0.0.0", self.config.http_stream_port), handler
+            )
+            self._stream_thread = threading.Thread(
+                target=self._stream_server.serve_forever,
+                daemon=True,
+                name="http_stream_server",
+            )
+            self._stream_thread.start()
+            logger.info(
+                f"[Agent] HTTP stream server started on port {self.config.http_stream_port}"
+            )
+        except Exception as e:
+            logger.error(f"[Agent] Failed to start stream server: {e}")
+
+    def _stop_stream_server(self) -> None:
+        """停止 HTTP 流服务端"""
+        if self._stream_server:
+            self._stream_server.shutdown()
+            self._stream_server = None
+        if self._stream_thread:
+            self._stream_thread.join(timeout=2.0)
+            self._stream_thread = None
+
+    def _create_stream_handler(self):
+        """创建 HTTP 流请求处理器"""
+        agent = self
+
+        class StreamHandler(BaseHTTPRequestHandler):
+            """HTTP 流请求处理器"""
+
+            def do_GET(self):
+                if self.path.startswith("/stream/"):
+                    topic = "/" + self.path[len("/stream/"):]
+                    with agent._stream_lock:
+                        data = agent._stream_data.get(topic)
+                    if data:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/octet-stream")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.send_header("Cache-Control", "no-cache")
+                        self.end_headers()
+                        self.wfile.write(data)
+                    else:
+                        self.send_error(404, f"No data for topic: {topic}")
+                else:
+                    self.send_error(404, "Not found. Use /stream/<topic>")
+
+            def log_message(self, format, *args):
+                logger.debug(f"[StreamServer] {format % args}")
+
+        return StreamHandler

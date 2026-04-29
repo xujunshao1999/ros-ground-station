@@ -17,9 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 station = [
     "fastapi>=0.104",
-    "uvicorn>=0.24",
-    "websockets>=12.0",
-    "aiosqlite>=0.19",
+    "uvicorn[standard]>=0.24",
 ]
 dev = [
     "pytest>=7.4",
@@ -33,7 +31,7 @@ include = ["protocol*", "agent*", "station*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py38"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 话题类型注册表 - 根据消息类型自动分类传输策略
 
@@ -7,11 +9,9 @@
   - heavy:   重量话题 (>1MB)     → HTTP 流 + MQTT 信令
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ class TopicInfo:
     msg_type: str                # ROS 消息类型，如 "sensor_msgs/Image"
     tier: TopicTier              # 传输层级
     description: str = ""        # 说明
-    default_freq_limit: float | None = None  # 默认频率限制 (Hz)
+    default_freq_limit: Optional[float] = None  # 默认频率限制 (Hz)
     compression_defaults: dict[str, Any] = field(default_factory=dict)  # 默认压缩选项
 
 
@@ -92,7 +92,7 @@ class TopicRegistry:
     - 未注册的消息类型默认为 LIGHT
     """
 
-    def __init__(self, custom_entries: dict[str, TopicInfo] | None = None):
+    def __init__(self, custom_entries: Optional[Dict[str, TopicInfo]] = None):
         self._registry: dict[str, TopicInfo] = dict(_BUILTIN_REGISTRY)
         if custom_entries:
             self._registry.update(custom_entries)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Mock Agent — 模拟机器人 Agent
 
@@ -9,8 +11,6 @@ Mock Agent — 模拟机器人 Agent
 - 重量话题 HTTP 流服务端
 """
 
-from __future__ import annotations
-
 import base64
 import io
 import json
@@ -19,7 +19,6 @@ import math
 import random
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 
 import numpy as np
@@ -33,6 +32,9 @@ from protocol.messages import (
     CmdData,
     CmdAction,
     RobotMode,
+    EventData,
+    EventLevel,
+    FleetData,
 )
 from protocol.topic_registry import TopicTier
 
@@ -51,7 +53,8 @@ class MockAgent(BaseAgent):
     def __init__(self, config: Optional[AgentConfig] = None):
         super().__init__(config)
 
-        # 模拟状态
+        # 模拟状态（多线程共享，需加锁保护）
+        self._state_lock = threading.Lock()
         self._position = Position(x=0.0, y=0.0, theta=0.0)
         self._velocity = Velocity(linear=0.0, angular=0.0)
         self._battery = 100.0
@@ -66,11 +69,19 @@ class MockAgent(BaseAgent):
         self._sensor_threads: dict[str, threading.Thread] = {}
         self._sensor_running: dict[str, bool] = {}
 
-        # HTTP 流服务端
-        self._stream_server: Optional[HTTPServer] = None
-        self._stream_thread: Optional[threading.Thread] = None
-        self._stream_data: dict[str, bytes] = {}  # {topic: latest_data}
-        self._stream_lock = threading.Lock()
+        # 模拟事件生成
+        self._last_event_time: float = 0.0
+        self._event_events: list[dict] = [
+            {"level": EventLevel.INFO, "code": "battery_normal", "message": "Battery level normal", "weight": 3},
+            {"level": EventLevel.WARNING, "code": "battery_low", "message": "Battery level low", "weight": 1},
+            {"level": EventLevel.INFO, "code": "system_ok", "message": "System health check passed", "weight": 4},
+            {"level": EventLevel.WARNING, "code": "network_latency", "message": "Network latency high", "weight": 1},
+            {"level": EventLevel.ERROR, "code": "motor_stall", "message": "Motor stall detected", "weight": 1},
+            {"level": EventLevel.INFO, "code": "mode_change", "message": "Operation mode changed", "weight": 2},
+            {"level": EventLevel.INFO, "code": "sensor_ok", "message": "All sensors calibrated", "weight": 2},
+            {"level": EventLevel.WARNING, "code": "temp_high", "message": "CPU temperature high", "weight": 1},
+        ]
+
 
     # ============================================================
     # BaseAgent 抽象方法实现
@@ -78,18 +89,17 @@ class MockAgent(BaseAgent):
 
     def _get_status_data(self) -> StatusData:
         """生成模拟状态数据"""
-        # 更新模拟状态
-        self._update_simulation()
-
-        return StatusData(
-            battery=round(self._battery, 1),
-            position=self._position,
-            velocity=self._velocity,
-            mode=self._mode,
-            ros_version="mock",
-            uptime=self._uptime,
-            ip=self._get_local_ip(),
-        )
+        with self._state_lock:
+            self._update_simulation()
+            return StatusData(
+                battery=round(self._battery, 1),
+                position=self._position,
+                velocity=self._velocity,
+                mode=self._mode,
+                ros_version="mock",
+                uptime=self._uptime,
+                ip=self._get_local_ip(),
+            )
 
     def _execute_command(self, cmd: CmdData) -> tuple[bool, str]:
         """执行模拟指令"""
@@ -99,34 +109,34 @@ class MockAgent(BaseAgent):
         if action == CmdAction.VELOCITY:
             linear = params.get("linear", 0.0)
             angular = params.get("angular", 0.0)
-            self._target_velocity = Velocity(linear=linear, angular=angular)
-            self._mode = RobotMode.MANUAL if (linear != 0 or angular != 0) else RobotMode.STOP
+            with self._state_lock:
+                self._target_velocity = Velocity(linear=linear, angular=angular)
+                self._mode = RobotMode.MANUAL if (linear != 0 or angular != 0) else RobotMode.STOP
             logger.info(f"[MockAgent] Set velocity: linear={linear}, angular={angular}")
             return True, f"Velocity set: linear={linear}, angular={angular}"
 
         elif action == CmdAction.MODE:
             mode_str = params.get("mode", "stop")
             try:
-                self._mode = RobotMode(mode_str)
-                if mode_str == RobotMode.STOP:
-                    # stop 模式同时清零速度
-                    self._target_velocity = Velocity(linear=0.0, angular=0.0)
-                    self._velocity = Velocity(linear=0.0, angular=0.0)
+                with self._state_lock:
+                    self._mode = RobotMode(mode_str)
+                    if mode_str == RobotMode.STOP:
+                        self._target_velocity = Velocity(linear=0.0, angular=0.0)
+                        self._velocity = Velocity(linear=0.0, angular=0.0)
                 logger.info(f"[MockAgent] Set mode: {mode_str}")
                 return True, f"Mode set: {mode_str}"
             except ValueError:
                 return False, f"Unknown mode: {mode_str}"
 
         elif action == CmdAction.NAV_GOAL:
-            # 导航目标（模拟返航等场景）
             target = params.get("target", "home")
-            self._mode = RobotMode.AUTO
-            self._target_velocity = Velocity(linear=0.5, angular=0.0)
+            with self._state_lock:
+                self._mode = RobotMode.AUTO
+                self._target_velocity = Velocity(linear=0.5, angular=0.0)
             logger.info(f"[MockAgent] Navigating to: {target}")
             return True, f"Navigating to {target}"
 
         elif action == CmdAction.CUSTOM:
-            # 自定义指令
             logger.info(f"[MockAgent] Custom command: {params}")
             return True, f"Custom command executed"
 
@@ -257,7 +267,42 @@ class MockAgent(BaseAgent):
         while self._running:
             if self.state in (AgentState.CONNECTED, AgentState.RUNNING):
                 self._check_and_publish_status()
+                self._generate_mock_events()
             time.sleep(self.config.status_interval)
+
+    def _generate_mock_events(self) -> None:
+        """模拟事件生成（每 10 秒随机生成一个事件）"""
+        now = time.time()
+        if now - self._last_event_time < 10.0:
+            return
+        self._last_event_time = now
+
+        # 按权重选择事件
+        total_weight = sum(e["weight"] for e in self._event_events)
+        r = random.uniform(0, total_weight)
+        cumulative = 0
+        chosen = None
+        for e in self._event_events:
+            cumulative += e["weight"]
+            if r <= cumulative:
+                chosen = e
+                break
+        if not chosen:
+            return
+
+        with self._state_lock:
+            details = {
+                "battery": round(self._battery, 1),
+                "uptime": self._uptime,
+            }
+        event_data = EventData(
+            level=chosen["level"],
+            code=chosen["code"],
+            message=chosen["message"],
+            details=details,
+        )
+        self.publish_event(event_data)
+        logger.debug(f"[MockAgent] Event: [{chosen['level']}] {chosen['code']}")
 
     def _start_status_loop(self) -> None:
         """重写父类方法，启动状态上报线程"""
@@ -508,76 +553,14 @@ class MockAgent(BaseAgent):
             "timestamp": time.time(),
         }
 
-    # ============================================================
-    # HTTP 流服务端（重量话题）
-    # ============================================================
-
-    def _start_stream_server(self) -> None:
-        """启动 HTTP 流服务端"""
-        handler = self._create_stream_handler()
-
-        try:
-            self._stream_server = HTTPServer(
-                ("0.0.0.0", self.config.http_stream_port), handler
-            )
-            self._stream_thread = threading.Thread(
-                target=self._stream_server.serve_forever,
-                daemon=True,
-                name="stream_server",
-            )
-            self._stream_thread.start()
-            logger.info(
-                f"[MockAgent] HTTP stream server started on port {self.config.http_stream_port}"
-            )
-        except Exception as e:
-            logger.error(f"[MockAgent] Failed to start stream server: {e}")
-
-    def _stop_stream_server(self) -> None:
-        """停止 HTTP 流服务端"""
-        if self._stream_server:
-            self._stream_server.shutdown()
-            self._stream_server = None
-        if self._stream_thread:
-            self._stream_thread.join(timeout=2.0)
-            self._stream_thread = None
-
-    def _create_stream_handler(self):
-        """创建 HTTP 流请求处理器"""
-        agent = self
-
-        class StreamHandler(BaseHTTPRequestHandler):
-            """HTTP 流请求处理器"""
-
-            def do_GET(self):
-                # 匹配路径 /stream/{topic}
-                if self.path.startswith("/stream/"):
-                    topic = "/" + self.path[len("/stream/"):]
-
-                    with agent._stream_lock:
-                        data = agent._stream_data.get(topic)
-
-                    if data:
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/octet-stream")
-                        self.send_header("Content-Length", str(len(data)))
-                        self.send_header("Cache-Control", "no-cache")
-                        self.end_headers()
-                        self.wfile.write(data)
-                    else:
-                        self.send_error(404, f"No data for topic: {topic}")
-                else:
-                    self.send_error(404, "Not found")
-
-            def log_message(self, format, *args):
-                # 静默 HTTP 日志
-                pass
-
-        return StreamHandler
-
-    def _store_stream_data(self, topic: str, data: bytes) -> None:
-        """存储流数据（供 HTTP 流服务端读取）"""
-        with self._stream_lock:
-            self._stream_data[topic] = data
-
     def _get_ros_version(self) -> str:
         return "mock"
+
+    # ============================================================
+    # 机器人间通信
+    # ============================================================
+
+    def _on_fleet_message(self, src_id: str, data: FleetData) -> None:
+        """处理其他机器人发来的 fleet 数据"""
+        logger.info(f"[MockAgent] Fleet data from {src_id}: "
+                    f"type={data.data_type}, payload={data.payload}")

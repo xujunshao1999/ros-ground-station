@@ -3,7 +3,7 @@
 ## 版本
 
 - 协议版本: 1.0
-- 更新日期: 2026-04-08
+- 更新日期: 2026-04-29
 
 ## 1. 设计原则
 
@@ -50,6 +50,8 @@
 | `robot/{id}/cmd` | Station → Robot | 1 | 控制指令 |
 | `robot/{id}/cmd/ack` | Robot → Station | 1 | 指令确认 |
 | `robot/{id}/event` | Robot → Station | 1 | 告警/异常事件 |
+| `robot/{src}/to/{dst}` | Robot → Robot | 1 | 机器人间数据传递（位置/导航目标/自定义） |
+| `robot/{src}/to/{dst}/meta` | Robot → Robot | 1 | 机器人间重量话题元信息（点云流地址等） |
 | `station/discover` | Station → Robot | 1 | 发现请求 |
 | `station/topic/request` | Station → Robot | 1 | Topic 订阅/取消请求 |
 | `station/topic/response` | Robot → Station | 1 | Topic 请求响应 |
@@ -62,6 +64,11 @@
 - `robot/+/cmd/ack` — 所有指令确认
 - `robot/+/event` — 所有事件
 - `robot/+/sensor/+/meta` — 所有传感器元信息
+
+机器人间通信使用目标 ID 通配符：
+
+- `robot/+/to/{self_id}` — 所有发往本机的机器人间数据
+- `robot/+/to/{self_id}/meta` — 所有发往本机的重量话题元信息
 
 ### 3.3 sensor name 映射
 
@@ -270,6 +277,75 @@ Agent 对重量话题（点云等）先发送元信息，地面站通过 HTTP �
     "stream_url": "http://192.168.1.101:8080/stream/lidar.points",
     "size_bytes": 800000,
     "freq_hz": 5.0
+  }
+}
+```
+
+### 4.8 fleet_data — 机器人间数据
+
+Robot 向其他 Robot 直接发送数据，不经过地面站中转。
+
+**轻量数据**（position / nav_goal / custom）直接通过 MQTT JSON 传输：
+
+```json
+{
+  "type": "fleet_data",
+  "dst": "robot_002",
+  "data": {
+    "data_type": "position",
+    "payload": {"x": 1.2, "y": 3.4, "theta": 0.5},
+    "ttl": 30.0
+  }
+}
+```
+
+**重量数据**（pointcloud）先通过 MQTT 发送 `fleet_data` 信令，接收方从 `stream_url` 通过 HTTP 直连拉取：
+
+```json
+{
+  "type": "fleet_data",
+  "dst": "robot_002",
+  "data": {
+    "data_type": "pointcloud",
+    "payload": {
+      "topic": "/fleet/points",
+      "msg_type": "sensor_msgs/PointCloud2",
+      "stream_url": "http://192.168.1.101:8080/stream/fleet/points",
+      "size_bytes": 800000
+    },
+    "ttl": 30.0
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| data_type | string | 数据类型: position/nav_goal/custom/pointcloud |
+| payload | object | 数据内容，随 data_type 变化 |
+| ttl | float | 有效时间（秒），超时可丢弃 |
+
+### 4.9 机器人间重量话题信令（fleet_data + meta topic）
+
+机器人间重量话题复用 Agent 已有的 HTTP 流服务端。流程：
+
+1. Robot A 将点云数据存入 `_stream_data`（复用 `_store_stream_data`）
+2. Robot A 在 `robot/A/to/B/meta` 上发送 fleet_data 信令（含 stream_url）
+3. Robot B 收到后通过 HTTP 直连 Robot A 的流服务端拉取二进制数据
+
+MQTT topic: `robot/{src}/to/{dst}/meta`
+
+```json
+{
+  "type": "fleet_data",
+  "src": "robot_A",
+  "dst": "robot_B",
+  "data": {
+    "data_type": "pointcloud",
+    "payload": {
+      "topic": "/fleet/points",
+      "stream_url": "http://192.168.1.101:8080/stream/fleet/points",
+      "size_bytes": 800000
+    }
   }
 }
 ```

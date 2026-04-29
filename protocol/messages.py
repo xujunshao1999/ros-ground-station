@@ -1,17 +1,17 @@
+from __future__ import annotations
+
 """
 消息协议定义 - 地面站与机器人之间的通信消息格式
 
 所有跨网络消息必须符合此模块定义的格式，确保 Agent 与地面站解耦。
 """
 
-from __future__ import annotations
-
 import json
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ class MessageType(str, Enum):
     TOPIC_RESPONSE = "topic_resp"    # Topic 请求响应
     SENSOR_DATA = "sensor_data"      # 传感器数据
     SENSOR_META = "sensor_meta"      # 重量话题元信息
+    FLEET_DATA = "fleet_data"        # 机器人间数据
 
 
 class TopicAction(str, Enum):
@@ -164,9 +165,9 @@ class DiscoverResponseData:
 @dataclass
 class CompressionOptions:
     """压缩/降采样选项"""
-    quality: int | None = None       # JPEG 质量 (1-100)
-    resize: list[int] | None = None  # 图像缩放 [width, height]
-    voxel_size: float | None = None  # 点云体素降采样大小
+    quality: Optional[int] = None       # JPEG 质量 (1-100)
+    resize: Optional[List[int]] = None  # 图像缩放 [width, height]
+    voxel_size: Optional[float] = None  # 点云体素降采样大小
 
 
 @dataclass
@@ -175,7 +176,7 @@ class TopicRequestData:
     action: str = TopicAction.SUBSCRIBE
     topic: str = ""                  # ROS topic 名称
     msg_type: str = ""               # ROS 消息类型
-    freq_limit: float | None = None  # 频率限制 (Hz)
+    freq_limit: Optional[float] = None  # 频率限制 (Hz)
     transport: str = TransportType.AUTO
     compression: dict[str, Any] = field(default_factory=dict)
 
@@ -199,6 +200,14 @@ class SensorMetaData:
     stream_url: str = ""
     size_bytes: int = 0
     freq_hz: float = 0.0
+
+
+@dataclass
+class FleetData:
+    """机器人间数据"""
+    data_type: str = "custom"        # "position" | "nav_goal" | "custom" | "pointcloud"
+    payload: dict[str, Any] = field(default_factory=dict)
+    ttl: float = 30.0                # 有效时间（秒）
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +291,8 @@ class MessageFactory:
         """构建通用消息"""
         if isinstance(data, (StatusData, CmdData, CmdAckData, EventData,
                              DiscoverData, DiscoverResponseData,
-                             TopicRequestData, TopicResponseData, SensorMetaData)):
+                             TopicRequestData, TopicResponseData,
+                             SensorMetaData, FleetData)):
             data = asdict(data)
         return Message(
             ts=time.time(),
@@ -328,3 +338,7 @@ class MessageFactory:
     def sensor_meta(self, meta_data: SensorMetaData) -> Message:
         """创建重量话题元信息消息"""
         return self._make(MessageType.SENSOR_META, meta_data)
+
+    def fleet_data(self, fleet_data: FleetData, dst: str = "") -> Message:
+        """创建机器人间通信消息"""
+        return self._make(MessageType.FLEET_DATA, fleet_data, dst=dst)

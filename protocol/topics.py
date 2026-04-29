@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 MQTT Topic 规范 - 定义所有 MQTT topic 的命名规则和生成函数
 
@@ -13,7 +15,7 @@ Topic 层级结构:
   station/topic/response         - 订阅请求确认
 """
 
-from __future__ import annotations
+from typing import Dict, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +34,7 @@ _EVENT = "event"
 _DISCOVER = "discover"
 _TOPIC_REQUEST = "topic/request"
 _TOPIC_RESPONSE = "topic/response"
+_TO = "to"
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +58,8 @@ TOPIC_QOS = {
     "discover": QoS.AT_LEAST_ONCE,
     "topic_request": QoS.AT_LEAST_ONCE,
     "topic_response": QoS.AT_LEAST_ONCE,
+    "to_robot": QoS.AT_LEAST_ONCE,
+    "to_robot_meta": QoS.AT_LEAST_ONCE,
 }
 
 
@@ -109,6 +114,19 @@ def station_topic_response(robot_id: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
+# 机器人间通信 topic
+# ---------------------------------------------------------------------------
+def robot_to_robot(src_id: str, dst_id: str) -> str:
+    """robot/{src}/to/{dst} — 机器人间数据传递"""
+    return f"{ROBOT_PREFIX}/{src_id}/{_TO}/{dst_id}"
+
+
+def robot_to_robot_meta(src_id: str, dst_id: str) -> str:
+    """robot/{src}/to/{dst}/meta — 机器人间重量话题元信息"""
+    return f"{ROBOT_PREFIX}/{src_id}/{_TO}/{dst_id}/{_META}"
+
+
+# ---------------------------------------------------------------------------
 # 订阅通配符 - 地面站用于订阅所有机器人
 # ---------------------------------------------------------------------------
 def all_robot_status() -> str:
@@ -131,10 +149,20 @@ def all_robot_sensor_meta() -> str:
     return f"{ROBOT_PREFIX}/+/{_SENSOR}/+/{_META}"
 
 
+def all_robot_to_robot(dst_id: str) -> str:
+    """robot/+/to/{dst_id} - 订阅所有发往本机的机器人间数据"""
+    return f"{ROBOT_PREFIX}/+/{_TO}/{dst_id}"
+
+
+def all_robot_to_robot_meta(dst_id: str) -> str:
+    """robot/+/to/{dst_id}/meta - 订阅所有发往本机的元信息"""
+    return f"{ROBOT_PREFIX}/+/{_TO}/{dst_id}/{_META}"
+
+
 # ---------------------------------------------------------------------------
 # Topic 解析 - 从 MQTT topic 字符串中提取信息
 # ---------------------------------------------------------------------------
-def parse_robot_topic(topic: str) -> dict[str, str] | None:
+def parse_robot_topic(topic: str) -> Optional[Dict[str, str]]:
     """
     解析 robot/ 开头的 topic，返回结构化信息
 
@@ -169,13 +197,22 @@ def parse_robot_topic(topic: str) -> dict[str, str] | None:
                 result["type"] = "sensor_meta"
         else:
             return None
+    elif parts[2] == _TO:
+        # robot/{src}/to/{dst} 或 robot/{src}/to/{dst}/meta
+        if len(parts) > 3:
+            result["type"] = "to_robot"
+            result["dst_id"] = parts[3]
+            if len(parts) > 4 and parts[4] == _META:
+                result["type"] = "to_robot_meta"
+        else:
+            return None
     else:
         return None
 
     return result
 
 
-def parse_station_topic(topic: str) -> dict[str, str] | None:
+def parse_station_topic(topic: str) -> Optional[Dict[str, str]]:
     """
     解析 station/ 开头的 topic
 

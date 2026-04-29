@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 话题分层处理器
 
@@ -35,9 +37,7 @@ class ProcessedData:
 
 
 class TopicHandler:
-    from __future__ import annotations
-
-"""话题分层处理器
+    """话题分层处理器
 
     负责根据话题类型选择传输策略，并序列化/压缩数据。
     """
@@ -101,7 +101,6 @@ class TopicHandler:
             ProcessedData
         """
         msg_type = data.get("_msg_type", "")
-        info = self.registry.get_info(msg_type)
 
         # 检查是否为图像类型
         if self._is_image_type(msg_type):
