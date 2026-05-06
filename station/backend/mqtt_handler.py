@@ -1,6 +1,9 @@
 """
 地面站 MQTT 通信处理器
 
+[DEPRECATED] Foxglove 方案实施后，MQTT 通信由 station/foxglove/bridge/mqtt_ros_bridge.py 替代。
+此模块仅保留用于现有 Vue 前端的过渡期。过渡完成后将移除。
+
 负责：
 1. 连接 MQTT Broker
 2. 订阅所有机器人的状态、确认、事件

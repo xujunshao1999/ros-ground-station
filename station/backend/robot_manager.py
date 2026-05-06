@@ -2,7 +2,8 @@ from __future__ import annotations
 """
 机器人管理器
 
-负责：
+[DEPRECATED] Foxglove 方案实施后，机器人状态管理由 station/foxglove/bridge/mqtt_ros_bridge.py 中的 RobotState 替代。
+此模块仅保留用于现有 Vue 前端的过渡期。过渡完成后将移除。
 1. 管理已连接机器人列表（上线、离线、心跳超时检测）
 2. 存储各机器人最新状态
 3. 指令执行追踪（exec_id 匹配 ack）

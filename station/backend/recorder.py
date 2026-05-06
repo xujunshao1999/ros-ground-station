@@ -2,7 +2,8 @@ from __future__ import annotations
 """
 录制管理器
 
-挂载到 RobotManager 回调，自动将机器人状态和事件写入 SQLite。
+[DEPRECATED] Foxglove 方案实施后，数据录制由 Foxglove 内置的 MCAP Recording 替代。
+此模块仅保留用于现有 Vue 前端的过渡期。过渡完成后将移除。
 支持 start/stop/pause 控制，recording_interval 采样间隔。
 """
 

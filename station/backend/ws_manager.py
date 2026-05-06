@@ -2,6 +2,9 @@ from __future__ import annotations
 """
 WebSocket 连接管理器
 
+[DEPRECATED] Foxglove 方案实施后，WebSocket 通信由 foxglove_bridge 替代。
+此模块仅保留用于现有 Vue 前端的过渡期。过渡完成后将移除。
+
 负责：
 1. 管理所有 WebSocket 客户端连接
 2. 向所有连接客户端广播消息

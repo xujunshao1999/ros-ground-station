@@ -2,6 +2,9 @@ from __future__ import annotations
 """
 地面站 FastAPI 后端
 
+[DEPRECATED] Foxglove 方案实施后，REST API + WebSocket 接口由 Foxglove Studio + ROS topic 替代。
+此模块仅保留用于现有 Vue 前端的过渡期。过渡完成后将移除。
+
 提供 REST API 和 WebSocket 接口，供前端和外部工具调用。
 Phase 2 Step 2.2: 完整实现 WebSocket 双向通道。
 """
