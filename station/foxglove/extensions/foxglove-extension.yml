@@ -1,0 +1,39 @@
+# Foxglove Studio Extension Registry for ROS Ground Station
+# Each entry maps a panel name to its entry file and metadata.
+
+extensions:
+  - name: robot-list-panel
+    displayName: Robot List
+    description: Shows online/offline robots, battery, mode, and velocity. Click to select.
+    entry: src/RobotListPanel/index.tsx
+    icon: robot
+
+  - name: command-panel
+    displayName: Command
+    description: Velocity control, emergency stop, mode switching, home command.
+    entry: src/CommandPanel/index.tsx
+    icon: gamepad
+
+  - name: topic-config-panel
+    displayName: Topic Config
+    description: Subscribe/unsubscribe ROS topics, set frequency limits, sync config.
+    entry: src/TopicConfigPanel/index.tsx
+    icon: settings
+
+  - name: event-panel
+    displayName: Events
+    description: Real-time event/alarm feed from connected robots.
+    entry: src/EventPanel/index.tsx
+    icon: warning
+
+  - name: fleet-comm-panel
+    displayName: Fleet Comm
+    description: Configure robot-to-robot communication rules.
+    entry: src/FleetCommPanel/index.tsx
+    icon: network
+
+  - name: traffic-monitor
+    displayName: Traffic Monitor
+    description: Bandwidth usage per subscribed topic.
+    entry: src/TrafficMonitor/index.tsx
+    icon: chart
