@@ -1,10 +1,10 @@
 {
-  "displayString": "ROS Ground Station",
+  "version": 1,
   "configById": {
-    "3d-panel!center": {
+    "3D!local": {
       "cameraState": {
         "perspective": true,
-        "distance": 15,
+        "distance": 10,
         "phi": 45,
         "thetaOffset": 0,
         "targetOffset": [0, 0, 0]
@@ -25,13 +25,9 @@
           "plane": "xy"
         }
       },
-      "topics": {},
-      "layers": {
-        "grid": { "visible": true },
-        "transforms": { "visible": true }
-      }
+      "topics": {}
     },
-    "image-panel!bottom": {
+    "Image!local": {
       "smooth": true,
       "flipHorizontal": false,
       "flipVertical": false,
@@ -39,83 +35,28 @@
       "minValue": 0,
       "maxValue": 1
     },
-    "plot-panel!bottom": {
-      "paths": [],
+    "Plot!local": {
+      "paths": [
+        {
+          "value": "/robot_001/status.battery",
+          "label": "Battery",
+          "color": "#4caf50"
+        },
+        {
+          "value": "/robot_001/status.velocity.linear",
+          "label": "Velocity (linear m/s)",
+          "color": "#2196f3"
+        }
+      ],
       "minYValue": "",
       "maxYValue": "",
       "showLegend": true
-    }
-  },
-  "playbackConfig": {
-    "speed": 1.0
-  },
-  "layout": {
-    "id": "custom_ground_station_v1",
-    "name": "ROS Ground Station Layout",
-    "panels": {
-      "first": {
-        "id": "RobotListPanel",
-        "side": "left",
-        "width": 280,
-        "minWidth": 220
-      },
-      "second": {
-        "id": "CommandPanel",
-        "side": "left",
-        "height": 320,
-        "minHeight": 240
-      },
-      "third": {
-        "id": "TopicConfigPanel",
-        "side": "left",
-        "flex": 1,
-        "minHeight": 200
-      },
-      "fourth": {
-        "id": "EventPanel",
-        "side": "left",
-        "height": 200,
-        "minHeight": 120
-      },
-      "fifth": {
-        "id": "3D Panel",
-        "side": "center",
-        "flex": 1
-      },
-      "sixth": {
-        "id": "Image Panel",
-        "side": "bottom",
-        "height": 240,
-        "minHeight": 160,
-        "splitFrom": "fifth",
-        "direction": "vertical"
-      },
-      "seventh": {
-        "id": "Plot Panel",
-        "side": "bottom",
-        "height": 180,
-        "minHeight": 100,
-        "splitFrom": "sixth",
-        "direction": "vertical"
-      },
-      "eighth": {
-        "id": "FleetCommPanel",
-        "side": "right",
-        "width": 320,
-        "height": 280,
-        "minWidth": 260
-      },
-      "ninth": {
-        "id": "TrafficMonitor",
-        "side": "right",
-        "height": 200,
-        "minHeight": 140
-      },
-      "tenth": {
-        "id": "Raw Message Panel",
-        "side": "right",
-        "flex": 1
-      }
+    },
+    "Raw Messages!local": {
+      "topic": ""
+    },
+    "State Transitions!local": {
+      "topic": ""
     }
   }
 }
