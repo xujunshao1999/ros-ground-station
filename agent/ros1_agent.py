@@ -13,7 +13,7 @@ import logging
 import math
 import threading
 import time
-from typing import Optional
+from typing import Dict, List, Optional
 
 try:
     import rospy
@@ -23,6 +23,7 @@ except ImportError:
     rospy = None  # 延迟到运行时报错
 
 from agent.base_agent import BaseAgent, AgentConfig, AgentState
+from agent.ros_msg_converter import ros_msg_to_dict
 from protocol.messages import (
     StatusData,
     Position,
@@ -36,83 +37,6 @@ from protocol.messages import (
 logger = logging.getLogger(__name__)
 
 __all__ = ["ROS1Agent"]
-
-
-# ============================================================
-# ROS 消息 → dict 转换器
-# ============================================================
-
-def ros_msg_to_dict(msg) -> dict:
-    """将 ROS 消息转为可 JSON 序列化的字典
-
-    支持常见传感器消息类型。
-    """
-    msg_type = msg.__class__.__name__
-
-    if msg_type == "Imu":
-        return {
-            "orientation": {
-                "x": msg.orientation.x,
-                "y": msg.orientation.y,
-                "z": msg.orientation.z,
-                "w": msg.orientation.w,
-            },
-            "angular_velocity": {
-                "x": msg.angular_velocity.x,
-                "y": msg.angular_velocity.y,
-                "z": msg.angular_velocity.z,
-            },
-            "linear_acceleration": {
-                "x": msg.linear_acceleration.x,
-                "y": msg.linear_acceleration.y,
-                "z": msg.linear_acceleration.z,
-            },
-        }
-
-    elif msg_type == "Odometry":
-        p = msg.pose.pose.position
-        o = msg.pose.pose.orientation
-        v = msg.twist.twist
-        return {
-            "pose": {"x": p.x, "y": p.y, "z": p.z, "qw": o.w, "qx": o.x, "qy": o.y, "qz": o.z},
-            "twist": {"linear": v.linear.x, "angular": v.angular.z},
-        }
-
-    elif msg_type == "LaserScan":
-        return {
-            "angle_min": msg.angle_min,
-            "angle_max": msg.angle_max,
-            "angle_increment": msg.angle_increment,
-            "range_min": msg.range_min,
-            "range_max": msg.range_max,
-            "ranges": list(msg.ranges),
-        }
-
-    elif msg_type == "CompressedImage":
-        return {
-            "format": msg.format,
-            "data": list(msg.data),  # 大数据，需走 MEDIUM/HEAVY 通道
-        }
-
-    elif msg_type == "NavSatFix":
-        return {
-            "latitude": msg.latitude,
-            "longitude": msg.longitude,
-            "altitude": msg.altitude,
-        }
-
-    elif msg_type == "Twist":
-        return {
-            "linear": {"x": msg.linear.x, "y": msg.linear.y, "z": msg.linear.z},
-            "angular": {"x": msg.angular.x, "y": msg.angular.y, "z": msg.angular.z},
-        }
-
-    else:
-        # 通用回退：尝试转 str 再解析
-        try:
-            return json.loads(str(msg))
-        except (json.JSONDecodeError, TypeError):
-            return {"raw": str(msg)}
 
 
 class ROS1Agent(BaseAgent):
@@ -134,7 +58,7 @@ class ROS1Agent(BaseAgent):
         super().__init__(config)
 
         # ROS 订阅句柄
-        self._ros_subscribers: dict[str, object] = {}  # {topic: rospy.Subscriber}
+        self._ros_subscribers: Dict[str, object] = {}  # {topic: rospy.Subscriber}
 
         # ROS 发布器
         self._cmd_vel_pub: Optional[rospy.Publisher] = None
@@ -146,7 +70,7 @@ class ROS1Agent(BaseAgent):
         self._mode = RobotMode.STOP
 
         # 传感器数据缓存 {topic: latest_data_dict}
-        self._sensor_data: dict[str, dict] = {}
+        self._sensor_data: Dict[str, dict] = {}
         self._sensor_lock = threading.Lock()
 
     # ============================================================
@@ -247,7 +171,7 @@ class ROS1Agent(BaseAgent):
             logger.warning(f"[ROS1Agent] Unknown command: {action}")
             return False, f"Unknown command: {action}"
 
-    def _get_available_topics(self) -> list[dict]:
+    def _get_available_topics(self) -> List[dict]:
         """获取 ROS 中活跃的话题列表"""
         if rospy.is_shutdown():
             return []
