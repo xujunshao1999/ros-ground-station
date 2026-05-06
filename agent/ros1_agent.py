@@ -79,30 +79,37 @@ class ROS1Agent(BaseAgent):
 
     def _get_status_data(self) -> StatusData:
         """从 ROS 获取当前状态"""
-        # 尝试从 /odom 更新位置
         with self._sensor_lock:
             odom = self._sensor_data.get("/odom")
             if odom and "pose" in odom:
-                pose = odom["pose"]
-                # 从四元数 (qx, qy, qz, qw) 计算 yaw 角
-                qx = pose.get("qx", 0.0)
-                qy = pose.get("qy", 0.0)
-                qz = pose.get("qz", 0.0)
-                qw = pose.get("qw", 1.0)
+                # 新通用序列化器保留完整嵌套结构: pose.pose.{position, orientation}
+                pose_data = odom.get("pose", {})
+                # geometry_msgs/PoseWithCovariance: pose 字段是 geometry_msgs/Pose
+                inner_pose = pose_data.get("pose", pose_data)
+                pos = inner_pose.get("position", {})
+                ori = inner_pose.get("orientation", {})
+                # 兼容新旧两种格式
+                qx = ori.get("x", ori.get("qx", 0.0))
+                qy = ori.get("y", ori.get("qy", 0.0))
+                qz = ori.get("z", ori.get("qz", 0.0))
+                qw = ori.get("w", ori.get("qw", 1.0))
                 yaw = math.atan2(
                     2.0 * (qw * qz + qx * qy),
                     1.0 - 2.0 * (qy * qy + qz * qz)
                 )
                 self._position = Position(
-                    x=pose.get("x", 0.0),
-                    y=pose.get("y", 0.0),
+                    x=float(pos.get("x", 0.0)),
+                    y=float(pos.get("y", 0.0)),
                     theta=yaw,
                 )
             twist = self._sensor_data.get("/cmd_vel")
             if twist:
+                # geometry_msgs/Twist: linear 和 angular 都是 geometry_msgs/Vector3
+                linear = twist.get("linear", {})
+                angular = twist.get("angular", {})
                 self._velocity = Velocity(
-                    linear=twist.get("linear", {}).get("x", 0.0),
-                    angular=twist.get("angular", {}).get("z", 0.0),
+                    linear=float(linear.get("x", 0.0)),
+                    angular=float(angular.get("z", 0.0)),
                 )
 
         return StatusData(
