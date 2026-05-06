@@ -8,7 +8,7 @@ ROS 消息通用反序列化器
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,6 @@ def dict_to_ros_msg(data: dict, msg_type: str):
     Raises:
         ValueError: 如果 msg_type 无法通过 rospy.msg.get_message_class 解析
     """
-    import rospy
     from rospy.msg import get_message_class
 
     msg_class = get_message_class(msg_type)
@@ -63,7 +62,6 @@ def dict_to_ros_msg(data: dict, msg_type: str):
 def _convert_value(val: Any, type_str: str) -> Any:
     """根据 ROS 类型字符串将 Python 值转换为对应的 ROS 类型。"""
     import rospy
-    from rospy.msg import get_message_class
 
     if val is None:
         return None
@@ -103,7 +101,7 @@ def _convert_value(val: Any, type_str: str) -> Any:
             return rospy.Duration(
                 secs=val.get("secs", 0), nsecs=val.get("nsecs", 0)
             )
-        return rospy.Duration(secs=int(val))
+        return rospy.Duration.from_sec(val)
 
     # 嵌套消息
     if "/" in type_str:

@@ -1,7 +1,7 @@
 from __future__ import annotations
+
 """dict_to_ros_msg 测试 - 使用 mock/fake ROS 消息类"""
 
-import logging
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -43,6 +43,15 @@ class MockDuration:
     def __repr__(self):
         return f"MockDuration(secs={self.secs}, nsecs={self.nsecs})"
 
+    @classmethod
+    def from_sec(cls, seconds):
+        secs = int(seconds)
+        nsecs = int(round((seconds - secs) * 1e9))
+        return cls(secs=secs, nsecs=nsecs)
+
+    def to_sec(self):
+        return self.secs + self.nsecs * 1e-9
+
 
 mock_rospy.Time = MockTime
 mock_rospy.Duration = MockDuration
@@ -51,7 +60,9 @@ sys.modules["rospy"] = mock_rospy
 sys.modules["rospy.msg"] = mock_rospy.msg
 
 # Now import the module under test
-from station.foxglove.bridge.dict_to_ros_msg import dict_to_ros_msg, _parse_type_str
+from agent.ros_msg_converter import ros_msg_to_dict  # noqa: E402
+from station.foxglove.bridge.dict_to_ros_msg import _parse_type_str, dict_to_ros_msg  # noqa: E402
+
 
 # Reset warning counters for each test
 @pytest.fixture(autouse=True)
@@ -121,6 +132,21 @@ class MockPoseMsg:
         self.theta = 0.0
 
 
+class MockRoundtripMsg:
+    """综合消息：用于 roundtrip 测试"""
+    __slots__ = ["x", "name", "active", "stamp", "period", "data", "nested"]
+    _slot_types = ["float64", "string", "bool", "time", "duration", "float64[]", "test_msgs/Pose"]
+
+    def __init__(self):
+        self.x = 0.0
+        self.name = ""
+        self.active = False
+        self.stamp = MockTime()
+        self.period = MockDuration()
+        self.data = []
+        self.nested = MockPoseMsg()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -133,6 +159,7 @@ def _mock_get_message_class(msg_type: str):
         "test_msgs/Header": MockHeaderMsg,
         "test_msgs/Array": MockArrayMsg,
         "test_msgs/Pose": MockPoseMsg,
+        "test_msgs/Roundtrip": MockRoundtripMsg,
     }
     return registry.get(msg_type)
 
@@ -441,4 +468,78 @@ class TestDictToRosMsg:
                 )
 
         # 只记录 _MAX_WARNINGS + 1 条
-        assert _WARNING_COUNTS.get("Unknown field 'bogus' in data for message type 'test_msgs/Simple'", 0) == 5
+        assert _WARNING_COUNTS.get(
+            "Unknown field 'bogus' in data for message type 'test_msgs/Simple'", 0
+        ) == 5
+
+    def test_ros_duration_from_numeric(self):
+        """测试 duration 数字值（float/int）反序列化"""
+        class MockDurationMsg:
+            __slots__ = ["period", "name"]
+            _slot_types = ["duration", "string"]
+
+            def __init__(self):
+                self.period = MockDuration()
+                self.name = ""
+
+        registry = {"test_msgs/Duration": MockDurationMsg}
+
+        with patch.object(
+            mock_rospy.msg, "get_message_class",
+            side_effect=lambda t: registry.get(t),
+        ):
+            # float value (e.g. from ros_msg_to_dict's to_sec())
+            result = dict_to_ros_msg(
+                {"period": 5.5, "name": "float_dur"},
+                "test_msgs/Duration",
+            )
+
+        assert isinstance(result.period, MockDuration)
+        assert result.period.secs == 5
+        assert result.period.nsecs == 500000000
+        assert result.name == "float_dur"
+
+        with patch.object(
+            mock_rospy.msg, "get_message_class",
+            side_effect=lambda t: registry.get(t),
+        ):
+            # int value
+            result2 = dict_to_ros_msg(
+                {"period": 3, "name": "int_dur"},
+                "test_msgs/Duration",
+            )
+
+        assert isinstance(result2.period, MockDuration)
+        assert result2.period.secs == 3
+        assert result2.period.nsecs == 0
+        assert result2.name == "int_dur"
+
+    def test_roundtrip(self):
+        """完整 roundtrip：消息 → dict → 消息 → dict"""
+        msg = MockRoundtripMsg()
+        msg.x = 1.5
+        msg.name = "test_robot"
+        msg.active = True
+        msg.stamp = MockTime(secs=100, nsecs=500)
+        msg.period = MockDuration(secs=5, nsecs=100)
+        msg.data = [1.0, 2.0, 3.0]
+        msg.nested = MockPoseMsg()
+        msg.nested.x = 10.0
+        msg.nested.y = 20.0
+        msg.nested.theta = 0.5
+
+        d1 = ros_msg_to_dict(msg)
+
+        with patch.object(
+            mock_rospy.msg, "get_message_class", side_effect=_mock_get_message_class
+        ):
+            restored = dict_to_ros_msg(d1, "test_msgs/Roundtrip")
+
+        assert isinstance(restored, MockRoundtripMsg)
+        assert isinstance(restored.nested, MockPoseMsg)
+        assert isinstance(restored.stamp, MockTime)
+        assert isinstance(restored.period, MockDuration)
+
+        d2 = ros_msg_to_dict(restored)
+
+        assert d1 == d2
