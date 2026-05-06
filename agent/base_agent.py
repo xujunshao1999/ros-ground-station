@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Optional
+from typing import Callable, Dict, List, Optional
 
 import paho.mqtt.client as mqtt
 
@@ -176,7 +176,7 @@ class BaseAgent(ABC):
         self._topic_handler = TopicHandler()
 
         # 话题订阅管理：{ros_topic: {"msg_type": str, "freq_limit": float, ...}}
-        self._subscribed_topics: dict[str, dict] = {}
+        self._subscribed_topics: Dict[str, dict] = {}
 
         # 指令追踪
         self._exec_counter = 0
@@ -191,7 +191,7 @@ class BaseAgent(ABC):
         # HTTP 流服务端（重量话题用）
         self._stream_server: Optional[HTTPServer] = None
         self._stream_thread: Optional[threading.Thread] = None
-        self._stream_data: dict[str, bytes] = {}
+        self._stream_data: Dict[str, bytes] = {}
         self._stream_lock = threading.Lock()
 
     # ============================================================
@@ -397,7 +397,7 @@ class BaseAgent(ABC):
         ...
 
     @abstractmethod
-    def _get_available_topics(self) -> list[dict]:
+    def _get_available_topics(self) -> List[dict]:
         """获取机器人可用的话题列表
 
         Returns:
@@ -540,7 +540,7 @@ class BaseAgent(ABC):
             robot_id=self.config.robot_id,
             ros_version=self._get_ros_version(),
             ip=self._get_local_ip(),
-            topics=[t["topic"] for t in topics],
+            topics=topics,  # 直接传递完整列表 [{"topic": ..., "msg_type": ..., "description": ...}]
         ))
         self._mqtt_publish(station_topic_response(self.config.robot_id), response.to_json().encode("utf-8"))
 
@@ -596,6 +596,10 @@ class BaseAgent(ABC):
             # 发送确认
             response = self._factory.topic_response(TopicResponseData(
                 request_id=data.get("request_id", ""),
+                action="subscribe",
+                topic=topic,
+                msg_type=msg_type,
+                freq_limit=freq_limit,
                 result="ok",
             ))
             self._mqtt_publish(
@@ -611,6 +615,8 @@ class BaseAgent(ABC):
 
             response = self._factory.topic_response(TopicResponseData(
                 request_id=data.get("request_id", ""),
+                action="unsubscribe",
+                topic=topic,
                 result="ok",
             ))
             self._mqtt_publish(

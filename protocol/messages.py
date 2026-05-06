@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -117,14 +117,14 @@ class StatusData:
 @dataclass
 class CmdParams:
     """控制指令参数（通用 key-value）"""
-    params: dict[str, Any] = field(default_factory=dict)
+    params: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class CmdData:
     """控制指令数据"""
     action: str = CmdAction.VELOCITY
-    params: dict[str, Any] = field(default_factory=dict)
+    params: Dict[str, Any] = field(default_factory=dict)
     exec_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
 
@@ -142,7 +142,7 @@ class EventData:
     level: str = EventLevel.INFO
     code: str = ""
     message: str = ""
-    details: dict[str, Any] = field(default_factory=dict)
+    details: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -157,7 +157,7 @@ class DiscoverResponseData:
     request_id: str = ""
     robot_id: str = ""
     ros_version: str = ""
-    topics: list[str] = field(default_factory=list)  # 本地可用的 ROS topic 列表
+    topics: List[Dict[str, str]] = field(default_factory=list)  # [{"topic": "/odom", "msg_type": "nav_msgs/Odometry"}]
     ip: str = ""
     uptime: int = 0
 
@@ -178,13 +178,17 @@ class TopicRequestData:
     msg_type: str = ""               # ROS 消息类型
     freq_limit: Optional[float] = None  # 频率限制 (Hz)
     transport: str = TransportType.AUTO
-    compression: dict[str, Any] = field(default_factory=dict)
+    compression: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class TopicResponseData:
     """Topic 请求响应数据"""
     request_id: str = ""
+    action: str = ""                   # "subscribe" | "unsubscribe"
+    topic: str = ""                    # ROS 话题名
+    msg_type: str = ""                 # ROS 消息类型
+    freq_limit: float = 0.0           # 转发频率上限 (Hz)
     result: str = TopicResponseResult.OK
     message: str = ""
     transport: str = TransportType.MQTT_JSON
@@ -206,7 +210,7 @@ class SensorMetaData:
 class FleetData:
     """机器人间数据"""
     data_type: str = "custom"        # "position" | "nav_goal" | "custom" | "pointcloud"
-    payload: dict[str, Any] = field(default_factory=dict)
+    payload: Dict[str, Any] = field(default_factory=dict)
     ttl: float = 30.0                # 有效时间（秒）
 
 
@@ -235,13 +239,13 @@ class Message:
     dst: str = ""
     type: str = ""
     seq: int = 0
-    data: dict[str, Any] = field(default_factory=dict)
+    data: Dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
         """序列化为 JSON 字符串"""
         return json.dumps(asdict(self), ensure_ascii=False)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> Dict[str, Any]:
         """转为字典"""
         return asdict(self)
 
@@ -260,7 +264,7 @@ class Message:
         )
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Message:
+    def from_dict(cls, d: Dict[str, Any]) -> Message:
         """从字典构建"""
         return cls(
             ver=d.get("ver", PROTOCOL_VERSION),

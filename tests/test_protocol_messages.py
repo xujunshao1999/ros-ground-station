@@ -204,7 +204,7 @@ class TestMessageFactory:
             request_id="req_001",
             robot_id="robot_001",
             ros_version="1",
-            topics=["/odom", "/scan"],
+            topics=[{"topic": "/odom", "msg_type": "nav_msgs/Odometry"}, {"topic": "/scan", "msg_type": "sensor_msgs/LaserScan"}],
             ip="192.168.1.10",
         )
         msg = factory.discover_response(resp)
