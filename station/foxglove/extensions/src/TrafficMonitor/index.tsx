@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { formatBytes } from "../panel-utils";
 
 // ---------------------------------------------------------------------------
 // Local Foxglove types (not available at build time)
@@ -121,15 +122,6 @@ const loading: React.CSSProperties = {
   fontSize: 14,
   color: "rgba(255,255,255,0.35)",
 };
-
-// ---------------------------------------------------------------------------
-// Helper: format bytes with unit
-// ---------------------------------------------------------------------------
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB/s`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB/s`;
-  return `${bytes.toFixed(0)} B/s`;
-}
 
 // ---------------------------------------------------------------------------
 // Component

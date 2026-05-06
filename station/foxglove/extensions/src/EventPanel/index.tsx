@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { levelColor, relativeTime } from "../panel-utils";
 
 // ---------------------------------------------------------------------------
 // Local Foxglove types (not available at build time)
@@ -27,33 +28,6 @@ interface RobotEvent {
   code: string;
   message: string;
   timestamp: number;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function levelColor(level: string): string {
-  switch (level) {
-    case "info":
-      return "#2196f3";
-    case "warning":
-      return "#ff9800";
-    case "error":
-      return "#f44336";
-    case "critical":
-      return "#b71c1c";
-    default:
-      return "#9e9e9e";
-  }
-}
-
-function relativeTime(ts: number): string {
-  const delta = Date.now() / 1000 - ts;
-  if (delta < 0) return "0s ago";
-  if (delta < 60) return `${Math.floor(delta)}s ago`;
-  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
-  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
-  return `${Math.floor(delta / 86400)}d ago`;
 }
 
 // ---------------------------------------------------------------------------

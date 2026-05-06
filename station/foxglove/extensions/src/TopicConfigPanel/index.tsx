@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { getMessage, shortType, freqDisplay, statusDotColor } from "../panel-utils";
 
 // ---------------------------------------------------------------------------
 // Local Foxglove types (not available at build time)
@@ -34,57 +35,6 @@ interface SubEntry {
 interface AvailableTopic {
   topic: string;
   msg_type: string;
-}
-
-// ---------------------------------------------------------------------------
-// Parsing helper
-// ---------------------------------------------------------------------------
-function getMessage(
-  rs: Record<string, unknown>,
-  topic: string,
-): Record<string, unknown> | undefined {
-  const rawMsgs = (rs as Record<string, unknown>).messages;
-  let evts: unknown[] | undefined;
-  if (rawMsgs instanceof Map) evts = rawMsgs.get(topic);
-  else if (rawMsgs && typeof rawMsgs === "object")
-    evts = (rawMsgs as Record<string, unknown>)[topic] as unknown[] | undefined;
-  if (!evts || evts.length === 0) return undefined;
-  const latest = evts[evts.length - 1] as Record<string, unknown>;
-  const rawData = latest.message;
-  if (typeof rawData === "string") return JSON.parse(rawData);
-  if (
-    rawData &&
-    typeof (rawData as Record<string, unknown>).data === "string"
-  )
-    return JSON.parse((rawData as Record<string, unknown>).data as string);
-  return rawData as Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Display helpers
-// ---------------------------------------------------------------------------
-const typeAbbrev: Record<string, string> = {
-  "nav_msgs/Odometry": "Odometry",
-  "sensor_msgs/LaserScan": "LaserScan",
-  "sensor_msgs/CompressedImage": "CompImage",
-  "sensor_msgs/Imu": "IMU",
-  "sensor_msgs/NavSatFix": "GPS",
-  "sensor_msgs/PointCloud2": "PointCloud",
-  "geometry_msgs/Twist": "Twist",
-};
-
-function shortType(msgType: string): string {
-  return typeAbbrev[msgType] ?? msgType.split("/").pop() ?? msgType;
-}
-
-function freqDisplay(freq: number): string {
-  return freq > 0 ? `${freq}Hz` : "--";
-}
-
-function statusDotColor(status: string): string {
-  if (status === "active") return "#4caf50";
-  if (status === "pending") return "#ff9800";
-  return "#f44336";
 }
 
 // ---------------------------------------------------------------------------

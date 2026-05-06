@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { normalize, batColor, modeColor } from "../panel-utils";
 
 // ---------------------------------------------------------------------------
 // Local Foxglove types (not available at build time)
@@ -25,32 +26,6 @@ interface RobotInfo {
   mode: string | null;
   velocity: { linear: number; angular: number } | null;
   subscribedTopicsCount: number;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function normalize(raw: Record<string, unknown>): RobotInfo {
-  const s = (raw.status as Record<string, unknown> | undefined) ?? {};
-  const v = s.velocity as Record<string, unknown> | undefined;
-  const linear = typeof v?.linear === "number" ? v.linear
-    : typeof v?.linear === "string" ? parseFloat(v.linear as string) : undefined;
-  const angular = typeof v?.angular === "number" ? v.angular
-    : typeof v?.angular === "string" ? parseFloat(v.angular as string) : undefined;
-  return {
-    robot_id: (raw.robot_id as string) ?? "unknown",
-    online: (raw.online as boolean) ?? false,
-    battery: typeof s.battery === "number" ? s.battery
-      : typeof s.battery === "string" ? parseFloat(s.battery as string) : null,
-    mode: typeof s.mode === "string" ? s.mode : null,
-    velocity: linear !== undefined ? { linear, angular: angular ?? 0 } : null,
-    subscribedTopicsCount: Array.isArray(raw.subscriptions) ? raw.subscriptions.length : 0,
-  };
-}
-
-function batColor(p: number): string { return p > 50 ? "#4caf50" : p > 20 ? "#ff9800" : "#f44336"; }
-function modeColor(m: string): string {
-  return m === "auto" ? "#4caf50" : m === "manual" ? "#ff9800" : m === "stop" ? "#f44336" : m === "error" ? "#b71c1c" : "#9e9e9e";
 }
 function px(n: number, on: boolean): React.CSSProperties {
   return {
