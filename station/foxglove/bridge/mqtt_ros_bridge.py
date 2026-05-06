@@ -119,13 +119,11 @@ class MqttRosBridge:
         logger.info("[Bridge] Starting MQTT-ROS Bridge...")
         self._running = True
 
-        # 1. Connect MQTT and subscribe to wildcard topics
-        self._init_mqtt()
-        # Give MQTT a moment to connect before publishing
-        time.sleep(0.5)
-
-        # 2. Initialize ROS node, publishers, subscribers
+        # 1. Initialize ROS node FIRST (MQTT messages will need rospy)
         self._init_ros()
+
+        # 2. Connect MQTT and subscribe to wildcard topics
+        self._init_mqtt()
 
         # 3. Send discover to find online robots
         self._send_discover()
