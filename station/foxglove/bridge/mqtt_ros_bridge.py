@@ -28,6 +28,7 @@ Architecture overview:
 
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -42,7 +43,6 @@ from std_msgs.msg import String
 from protocol.messages import Message, MessageType, TopicResponseResult
 from protocol.topics import (
     robot_cmd,
-    robot_sensor,
     station_discover,
     station_topic_request,
     parse_robot_topic,
@@ -85,6 +85,7 @@ class MqttRosBridge:
 
     def __init__(self, config_path: Optional[str] = None) -> None:
         self._lock = threading.Lock()
+        self._publishers_lock = threading.Lock()
         self._robots: Dict[str, RobotState] = {}
         # _topic_map: {robot_id: {sensor_name: (ros_topic, msg_type)}}
         self._topic_map: Dict[str, Dict[str, Tuple[str, str]]] = {}
@@ -210,6 +211,7 @@ class MqttRosBridge:
         self._mqtt_client.on_connect = self._on_mqtt_connect
         self._mqtt_client.on_message = self._on_mqtt_message
         self._mqtt_client.on_disconnect = self._on_mqtt_disconnect
+        self._mqtt_client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         try:
             self._mqtt_client.connect(broker_host, broker_port)
@@ -229,8 +231,6 @@ class MqttRosBridge:
         ros_config = self._config.get("ros", {})
         master_uri = ros_config.get("master_uri", "http://localhost:11311")
         node_name = ros_config.get("node_name", "mqtt_ros_bridge")
-
-        import os
 
         os.environ["ROS_MASTER_URI"] = master_uri
 
@@ -275,22 +275,24 @@ class MqttRosBridge:
     ) -> rospy.Publisher:
         """Get or create a ROS ``std_msgs/String`` publisher."""
         key = f"string::{topic}"
-        if key not in self._ros_publishers:
-            self._ros_publishers[key] = rospy.Publisher(
-                topic, String, queue_size=10
-            )
-        return self._ros_publishers[key]
+        with self._publishers_lock:
+            if key not in self._ros_publishers:
+                self._ros_publishers[key] = rospy.Publisher(
+                    topic, String, queue_size=10
+                )
+            return self._ros_publishers[key]
 
     def _get_or_create_typed_publisher(
         self, topic: str, msg_class: type
     ) -> rospy.Publisher:
         """Get or create a typed ROS publisher."""
         key = f"{msg_class.__name__}::{topic}"
-        if key not in self._ros_publishers:
-            self._ros_publishers[key] = rospy.Publisher(
-                topic, msg_class, queue_size=10
-            )
-        return self._ros_publishers[key]
+        with self._publishers_lock:
+            if key not in self._ros_publishers:
+                self._ros_publishers[key] = rospy.Publisher(
+                    topic, msg_class, queue_size=10
+                )
+            return self._ros_publishers[key]
 
     # ================================================================
     # MQTT callbacks
@@ -313,6 +315,10 @@ class MqttRosBridge:
             client.subscribe("robot/+/event", qos=1)
             client.subscribe("robot/+/cmd/ack", qos=1)
             client.subscribe("station/topic/response/+", qos=1)
+
+            # Recover state after reconnect
+            self._send_discover()
+            self._restore_subscriptions()
         else:
             logger.error("[Bridge] MQTT connection failed: %s", rc_val)
 
@@ -326,7 +332,9 @@ class MqttRosBridge:
             else getattr(reason_code, "value", 0)
         )
         if rc_val != 0:
-            logger.warning("[Bridge] MQTT disconnected (rc=%s)", rc_val)
+            logger.warning(
+                "[Bridge] MQTT disconnected (rc=%s). Reconnecting...", rc_val
+            )
 
     def _on_mqtt_message(self, client, userdata, msg) -> None:
         """Route incoming MQTT messages to the correct handler."""
